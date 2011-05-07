@@ -5,7 +5,7 @@ This module exports some simple primitives for creating concurrent programs
 using message passing. Inspired by the Actor model and notions of types of
 concurrency, data, codata, etc.
 
-> module ActorsCollectors
+> module Control.Concurrent.Automatons
 >     where
 >
 > import Control.Monad.Trans.Maybe
