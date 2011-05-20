@@ -16,11 +16,18 @@ Here we define the Actor environment, similar to IO, in which we can launch new
 Actors and send messages to Actors in scope. The implementation is hidden from
 the user to enforce these restrictions.
 
-> newtype ActorM a = ActorM (MaybeT IO a) 
->                  deriving (Monad, MonadPlus)
+> newtype ActorM a = ActorM { actorM :: MaybeT IO a }
+>                  deriving (Monad, MonadPlus, MonadIO)
+>
+> runActorM = runMaybeT . actorM
 
 First we define an Actor: a function that takes an input, maybe returning a new
 actor:
+
+    TODO: Consider making Actor the newtype and eliminating NextActor
+      newtype Actor i = Actor { actor :: i -> ActorM (Actor i) }
+      continue :: (i -> ActorM (Actor i)) -> ActorM (Actor i)
+
 
 > type Actor i = i -> ActorM (NextActor i)
 > newtype NextActor i = NextActor { nextActor :: Actor i } 
@@ -40,6 +47,20 @@ Now some functions for building Actor computations:
 > -- | Actor terminating:
 > done :: ActorM (NextActor i)
 > done = mzero
+
+    IMPLEMENTATION NOTE: 
+        We might find that we can use the monoid abstraction, or 
+        that we should make Actor a newtype for other reasons. For
+        now we have this for composing
+
+> -- | compose two actors. The second will take over when the first exits
+> aseq :: Actor i -> Actor i -> Actor i
+> aseq f g = \i -> do 
+>     n <- liftIO $ runActorM $ f i
+>     return $ NextActor $ 
+>         case n of
+>              Nothing -> g
+>              Just (NextActor f') -> f' `aseq` g
 
 -------------------------------------------------------------------------------
 
@@ -82,11 +103,6 @@ is we would like to be able to send a message in IO
 
 -------------------------------------------------------------------------------
 
-> -- | fork an actor that reads its inputs from the supplied list. This returns
-> -- after the entire input list has been processed
-> runActorOn :: Actor i -> [i] -> IO ()
-> runActorOn = undefined
-
 > -- | fork an actor, returning its mailbox
 > forkActor :: (Action m)=> Actor i -> m (Mailbox i)
 > forkActor = undefined
@@ -95,12 +111,16 @@ is we would like to be able to send a message in IO
 > forkActorUsing :: (Action m)=> Actor i -> Mailbox i -> m ()
 > forkActorUsing = undefined
 
+> -- | fork an actor that reads its inputs from the supplied list. This returns
+> -- after the entire input list has been processed
+> runActorOn :: Actor i -> [i] -> IO ()
+> runActorOn = undefined
+
+
 > --TODO: add a function that forks an actor with an iteratee and returns the
 > -- resulting do
 
 TODO
-    - functions for running As and Cs, sending messages
-    - classes to support running above in IO or A/CM
     - test effect of using `yield` after each actor computation
     - a seperate module implementing other abstractions using these primitives
       (see notes)
