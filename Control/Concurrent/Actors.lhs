@@ -1,10 +1,30 @@
 > {-# LANGUAGE GeneralizedNewtypeDeriving #-}
->
 
-This module exports a simple, elegant implementation of the Actor Model.
+This module exports a simple, idiomatic implementation of the Actor Model.
 
-> module Control.Concurrent.Actors
->     where
+> module Control.Concurrent.Actors (
+>     -- * Actor computations
+>       Actor
+>     , NextActor(..)
+>     , ActorM()
+>     -- ** Building Actors
+>     , continue
+>     , done
+>     , aseq
+>     -- * Message passing and IO
+>     , send
+>     -- ** Actor system output:
+>     , receive
+>     , receiveList
+>     -- ** Mailbox
+>     , Mailbox()
+>     , newMailbox
+>     -- * Running Actors
+>     , Action()
+>     , forkActor
+>     , forkActorUsing
+>     , runActorOn
+>     ) where
 >
 > import Control.Monad.Trans.Maybe
 > import Control.Monad
@@ -16,6 +36,7 @@ Here we define the Actor environment, similar to IO, in which we can launch new
 Actors and send messages to Actors in scope. The implementation is hidden from
 the user to enforce these restrictions.
 
+> -- | The Actor encironment in which Actors can be spawned and sent messages
 > newtype ActorM a = ActorM { actorM :: MaybeT IO a }
 >                  deriving (Monad, MonadPlus, MonadIO)
 >
@@ -84,6 +105,10 @@ actors send messages to. It is simply a Chan with hidden implementation.
 > receive :: Mailbox o -> IO o
 > receive = readChan . mailbox
 
+> -- | Return a lazy list of mailbox contents
+> receiveList :: Mailbox o -> IO [o]
+> receiveList = getChanContents . mailbox
+
 > -- | create a new mailbox that Actors can be launched to read from, or Actors
 > -- can send messages to in order to communicate with other actors
 > newMailbox :: (Action m)=> m (Mailbox a)
@@ -92,6 +117,8 @@ actors send messages to. It is simply a Chan with hidden implementation.
 The Action class represents environments in which we can operate on actors. That
 is we would like to be able to send a message in IO
 
+> -- | monads in the Action class can participate in message passing and other
+> -- Actor operations
 > class Monad m => Action m where
 >     liftIOtoA :: IO a -> m a
 >
