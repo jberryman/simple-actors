@@ -26,10 +26,11 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , runActorOn
 >     ) where
 >
-> import Control.Monad.Trans.Maybe
 > import Control.Monad
 > import Control.Monad.IO.Class
+> import Control.Monad.Trans.Maybe
 > import Control.Concurrent
+> import Control.Applicative
 
 
 Here we define the Actor environment, similar to IO, in which we can launch new
@@ -38,7 +39,7 @@ the user to enforce these restrictions.
 
 > -- | The Actor encironment in which Actors can be spawned and sent messages
 > newtype ActorM a = ActorM { actorM :: MaybeT IO a }
->                  deriving (Monad, MonadPlus, MonadIO)
+>                  deriving (Monad, Functor, Applicative, Alternative, MonadPlus, MonadIO)
 >
 > runActorM = runMaybeT . actorM
 
@@ -76,12 +77,8 @@ Now some functions for building Actor computations:
 
 > -- | compose two actors. The second will take over when the first exits
 > aseq :: Actor i -> Actor i -> Actor i
-> aseq f g = \i -> do 
->     n <- liftIO $ runActorM $ f i
->     return $ NextActor $ 
->         case n of
->              Nothing -> g
->              Just (NextActor f') -> f' `aseq` g
+> aseq f g i = NextActor <$> (nextf <|> return g)
+>     where nextf = (`aseq` g) . nextActor <$> f i
 
 -------------------------------------------------------------------------------
 
