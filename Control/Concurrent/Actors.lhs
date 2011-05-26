@@ -1,4 +1,4 @@
-> {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+> {-# LANGUAGE GeneralizedNewtypeDeriving, ViewPatterns #-}
 
 This module exports a simple, idiomatic implementation of the Actor Model.
 
@@ -23,7 +23,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , Action()
 >     , forkActor
 >     , forkActorUsing
->     , runActorOn
+>     , runActorUsing
 >     ) where
 >
 > import Control.Monad
@@ -107,8 +107,8 @@ actors send messages to. It is simply a Chan with hidden implementation.
 >
 > -- | Send a message to an Actor. Actors can only be passed messages from other
 > -- actors.
-> send :: (Action m)=> a -> Mailbox a -> m ()
-> send a = liftIOtoA . flip writeChan a . mailbox
+> send :: (Action m)=> Mailbox a -> a -> m ()
+> send b = liftIOtoA . writeChan (mailbox b)
 
 > -- | Read a message from a mailbox in the IO monad. This can be used as the
 > -- mechanism for output from an Actor system. Blocks if the actor is empty
@@ -147,38 +147,27 @@ is we would like to be able to send a message in IO
 > forkActor :: (Action m)=> Actor i -> m (Mailbox i)
 > forkActor a = do
 >     b <- newMailbox
->     forkActorUsing a b
+>     forkActorUsing b a
 >     return b
 >     
 > -- | fork an actor that reads from the supplied Mailbox
-> forkActorUsing :: (Action m)=> Actor i -> Mailbox i -> m ()
-> forkActorUsing a b = do
->     liftIOtoA $ forkIO $ actorHandler (mailbox b) a
+> forkActorUsing :: (Action m)=> Mailbox i -> Actor i -> m ()
+> forkActorUsing b a = do
+>     liftIOtoA $ forkIO $ actorHandler b a
 >     return ()
 >     --void $ liftIOtoA $ forkIO $ actorHandler (mailbox b) a 
 >
-
-
-This function may be useful in the main thread as a way of "pushing" data into
-the actor system from some coordinating actor. I'm not sure yet.
-
-> -- | fork an actor that reads its inputs from the supplied list. This returns
-> -- after the entire input list has been processed by the actor or the actor
-> -- terminates
-> runActorOn :: Actor i -> [i] -> IO ()
-> runActorOn a l = do
->     b <- newMailbox
->     forkIO $ writeList2Chan (mailbox b) l
->     actorHandler (mailbox b) a
+> -- | run an Actor in the main thread, returning when the Actor exits
+> runActorUsing :: Mailbox i -> Actor i -> IO ()
+> runActorUsing = actorHandler
 
 
 Internal function that feeds the actor computation its values. This may be
 extended to support additional functionality in the future.
 
-> actorHandler :: Chan i -> Actor i -> IO ()
-> actorHandler c = loop
+> actorHandler :: Mailbox i -> Actor i -> IO ()
+> actorHandler (mailbox->c) = loop
 >     where loop a = readChan c >>= 
 >                     runActorM . a >>= 
->                      -- is a `yield` useful here?
 >                      maybe (return ()) (loop . nextActor)
 
