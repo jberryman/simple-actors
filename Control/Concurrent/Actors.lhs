@@ -80,7 +80,9 @@ Now some functions for building Actor computations:
 > aseq f g i = NextActor <$> (nextf <|> return g)
 >     where nextf = (`aseq` g) . nextActor <$> f i
 
+
 -------------------------------------------------------------------------------
+
 
 Here we define the "mailbox" that an Actor collects messages from, and other
 actors send messages to. It is simply a Chan with hidden implementation.
@@ -89,9 +91,20 @@ actors send messages to. It is simply a Chan with hidden implementation.
          we make no attempt to ensure that only one actor is reading                    
          from a given Chan. This means two Actors can share the work                    
          reading from the same mailbox.
-     
-> newtype Mailbox i = Mailbox { mailbox :: Chan i }
+         
+         If we want to change this in the future, Mailbox will contain
+         a type :: TVar ThreadID
 
+         To implement synchronous chans (or singly-buffered chans), 
+         we can use a SyncMailbox type containing an MVar and
+         possibly another Var for ensuring syncronicity. An MVar
+         writer will never block indefinitely. Use a class for writing
+         and reading these mailbox types.
+
+     
+> -- | the buffered message passing medium used between actors
+> newtype Mailbox i = Mailbox { mailbox :: Chan i }
+>
 > -- | Send a message to an Actor. Actors can only be passed messages from other
 > -- actors.
 > send :: (Action m)=> a -> Mailbox a -> m ()
@@ -111,6 +124,7 @@ actors send messages to. It is simply a Chan with hidden implementation.
 > newMailbox :: (Action m)=> m (Mailbox a)
 > newMailbox = liftIOtoA newChan >>= return . Mailbox
 
+
 The Action class represents environments in which we can operate on actors. That
 is we would like to be able to send a message in IO
 
@@ -125,27 +139,46 @@ is we would like to be able to send a message in IO
 > instance Action ActorM where
 >     liftIOtoA = ActorM . liftIO
 
+
 -------------------------------------------------------------------------------
+
 
 > -- | fork an actor, returning its mailbox
 > forkActor :: (Action m)=> Actor i -> m (Mailbox i)
-> forkActor = undefined
-
+> forkActor a = do
+>     b <- newMailbox
+>     forkActorUsing a b
+>     return b
+>     
 > -- | fork an actor that reads from the supplied Mailbox
 > forkActorUsing :: (Action m)=> Actor i -> Mailbox i -> m ()
-> forkActorUsing = undefined
+> forkActorUsing a b = do
+>     liftIOtoA $ forkIO $ actorHandler (mailbox b) a
+>     return ()
+>     --void $ liftIOtoA $ forkIO $ actorHandler (mailbox b) a 
+>
+
+
+This function may be useful in the main thread as a way of "pushing" data into
+the actor system from some coordinating actor. I'm not sure yet.
 
 > -- | fork an actor that reads its inputs from the supplied list. This returns
-> -- after the entire input list has been processed
+> -- after the entire input list has been processed by the actor or the actor
+> -- terminates
 > runActorOn :: Actor i -> [i] -> IO ()
-> runActorOn = undefined
+> runActorOn a l = do
+>     b <- newMailbox
+>     forkIO $ writeList2Chan (mailbox b) l
+>     actorHandler (mailbox b) a
 
 
-> --TODO: add a function that forks an actor with an iteratee and returns the
-> -- resulting do
+Internal function that feeds the actor computation its values. This may be
+extended to support additional functionality in the future.
 
-TODO
-    - test effect of using `yield` after each actor computation
-    - a seperate module implementing other abstractions using these primitives
-      (see notes)
+> actorHandler :: Chan i -> Actor i -> IO ()
+> actorHandler c = loop
+>     where loop a = readChan c >>= 
+>                     runActorM . a >>= 
+>                      -- is a `yield` useful here?
+>                      maybe (return ()) (loop . nextActor)
 
