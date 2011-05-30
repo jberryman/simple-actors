@@ -27,6 +27,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , forkActorUsing
 >     , forkLoop
 >     , runActorUsing
+>     , runLoop
 >     ) where
 >
 > import Control.Monad
@@ -190,10 +191,12 @@ is we would like to be able to send a message in IO
 >
 > -- | fork a looping computation which starts immediately
 > forkLoop :: (Action m)=> Loop -> m ()
-> forkLoop = forkA . loop  
->     where loop l = runActorM l >>= 
->                     maybe (return ()) (loop . ($ ()) .  nextActor)
-
+> forkLoop = forkA . runLoop  
+>
+> -- | run a Loop actor in the main thread, returning when the computation exits
+> runLoop :: Loop -> IO ()
+> runLoop l = runActorM l >>= 
+>              maybe (return ()) (runLoop . ($ ()) .  nextActor)
 
 >
 > -- | run an Actor in the main thread, returning when the Actor exits
