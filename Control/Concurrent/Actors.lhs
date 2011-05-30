@@ -52,7 +52,8 @@ the user to enforce these restrictions.
 
 > -- | The Actor encironment in which Actors can be spawned and sent messages
 > newtype ActorM a = ActorM { actorM :: MaybeT IO a }
->                  deriving (Monad, Functor, Applicative, Alternative, MonadPlus, MonadIO)
+>                  deriving (Monad, Functor, Applicative, 
+>                            Alternative, MonadPlus, MonadIO)
 >
 > runActorM = runMaybeT . actorM
 

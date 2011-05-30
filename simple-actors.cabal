@@ -48,7 +48,7 @@ Cabal-version:       >=1.2
 
 Library
   -- Modules exported by the library.
-  Exposed-module:     Control.Concurrent.Actors
+  Exposed-modules:     Control.Concurrent.Actors
   
   -- Packages needed in order to build this package.
   Build-depends:      transformers
