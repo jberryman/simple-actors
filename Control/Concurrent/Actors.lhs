@@ -5,10 +5,12 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > module Control.Concurrent.Actors (
 >     -- * Actor computations
 >       Actor
+>     , Loop
 >     , NextActor(..)
 >     , ActorM()
 >     -- ** Building Actors
 >     , continue
+>     , continue_
 >     , done
 >     , aseq
 >     -- * Message passing and IO
@@ -23,6 +25,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , Action()
 >     , forkActor
 >     , forkActorUsing
+>     , forkLoop
 >     , runActorUsing
 >     ) where
 >
@@ -32,6 +35,16 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Control.Concurrent
 > import Control.Applicative
 
+TODO?:
+    - Function for combining mailboxes (make a monoid? Only allow doing this in IO?)
+
+    Alternately: what if we delegated a single 'mainActor' that is in IO, and which
+    any Actor can send a message to? This would be an IO event loop and we would run
+    this IO loop from 'main' which would block until... so tired.
+
+    RE: Mailbox Class:
+        - Having such a class is a decent idea anyway since we may want to have
+          a synchronous Mailbox type, in which case we should 
 
 Here we define the Actor environment, similar to IO, in which we can launch new
 Actors and send messages to Actors in scope. The implementation is hidden from
@@ -61,10 +74,10 @@ Now some functions for building Actor computations:
 > continue = return . NextActor
 
     IMPLEMENTATION NOTE: 
-         when an actor terminates, its mailbox persists and we                        
-         currently provide no functions to query an actor's status.                    
-         Signaling an actor's termination should be done with                          
-         message passing.
+        when an actor terminates, its mailbox persists and we                        
+        currently provide no functions to query an actor's status.                    
+        Signaling an actor's termination should be done with                          
+        message passing.
 
 > -- | Actor terminating:
 > done :: ActorM (NextActor i)
@@ -81,30 +94,48 @@ Now some functions for building Actor computations:
 >     where nextf = (`aseq` g) . nextActor <$> f i
 
 
--------------------------------------------------------------------------------
+A Loop is just an Actor that ignores its input. We provide some useful
+functions for building and running such computations:
+
+> -- | An Actor that discards its input, i.e. a simple loop.
+> type Loop = ActorM (NextActor ())
+>
+> -- | Continue with a Loop computation
+> continue_ :: Loop -> ActorM (NextActor i)
+> continue_ = fmap (NextActor . fixConst . nextActor)
+>     where fixConst c = const $ continue_ $ c ()
+
 
 
 Here we define the "mailbox" that an Actor collects messages from, and other
 actors send messages to. It is simply a Chan with hidden implementation.
 
     IMPLEMENTATION NOTE: 
-         we make no attempt to ensure that only one actor is reading                    
-         from a given Chan. This means two Actors can share the work                    
-         reading from the same mailbox.
-         
-         If we want to change this in the future, Mailbox will contain
-         a type :: TVar ThreadID
+        we make no attempt to ensure that only one actor is reading                    
+        from a given Chan. This means two Actors can share the work                    
+        reading from the same mailbox.
+        
+        If we want to change this in the future, Mailbox will contain
+        a type :: TVar ThreadID
 
-         To implement synchronous chans (or singly-buffered chans), 
-         we can use a SyncMailbox type containing an MVar and
-         possibly another Var for ensuring syncronicity. An MVar
-         writer will never block indefinitely. Use a class for writing
-         and reading these mailbox types.
+        To implement synchronous chans (or singly-buffered chans), 
+        we can use a SyncMailbox type containing an MVar and
+        possibly another Var for ensuring syncronicity. An MVar
+        writer will never block indefinitely. Use a class for writing
+        and reading these mailbox types.
 
      
 > -- | the buffered message passing medium used between actors
 > newtype Mailbox i = Mailbox { mailbox :: Chan i }
 >
+
+    IMPLEMENTATION NOTE: 
+        We allow sending of messages to Actors in IO, treating the 
+        main thread as something of an Actor with special privileges;
+        It can launch actors and message them, but also read as it 
+        pleases from Mailboxes
+
+
 > -- | Send a message to an Actor. Actors can only be passed messages from other
 > -- actors.
 > send :: (Action m)=> Mailbox a -> a -> m ()
@@ -119,8 +150,8 @@ actors send messages to. It is simply a Chan with hidden implementation.
 > receiveList :: Mailbox o -> IO [o]
 > receiveList = getChanContents . mailbox
 
-> -- | create a new mailbox that Actors can be launched to read from, or Actors
-> -- can send messages to in order to communicate with other actors
+> -- | create a new mailbox that Actors can be launched to read from or
+> -- send messages to in order to communicate with other actors
 > newMailbox :: (Action m)=> m (Mailbox a)
 > newMailbox = liftIOtoA newChan >>= return . Mailbox
 
@@ -133,6 +164,9 @@ is we would like to be able to send a message in IO
 > class Monad m => Action m where
 >     liftIOtoA :: IO a -> m a
 >
+>     forkA :: IO () -> m ()
+>     forkA io = liftIOtoA $ forkIO io >> return ()
+>
 > instance Action IO where
 >     liftIOtoA = id
 >
@@ -140,7 +174,6 @@ is we would like to be able to send a message in IO
 >     liftIOtoA = ActorM . liftIO
 
 
--------------------------------------------------------------------------------
 
 
 > -- | fork an actor, returning its mailbox
@@ -152,10 +185,15 @@ is we would like to be able to send a message in IO
 >     
 > -- | fork an actor that reads from the supplied Mailbox
 > forkActorUsing :: (Action m)=> Mailbox i -> Actor i -> m ()
-> forkActorUsing b a = do
->     liftIOtoA $ forkIO $ actorHandler b a
->     return ()
->     --void $ liftIOtoA $ forkIO $ actorHandler (mailbox b) a 
+> forkActorUsing b = forkA . actorHandler b
+>
+> -- | fork a looping computation which starts immediately
+> forkLoop :: (Action m)=> Loop -> m ()
+> forkLoop = forkA . loop  
+>     where loop l = runActorM l >>= 
+>                     maybe (return ()) (loop . ($ ()) .  nextActor)
+
+
 >
 > -- | run an Actor in the main thread, returning when the Actor exits
 > runActorUsing :: Mailbox i -> Actor i -> IO ()
