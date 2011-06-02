@@ -5,7 +5,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > module Control.Concurrent.Actors (
 >     -- * Actor computations
 >       Actor
->     , Loop
+>     , Actor_
 >     , NextActor(..)
 >     , ActorM()
 >     -- ** Building Actors
@@ -25,9 +25,9 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , Action()
 >     , forkActor
 >     , forkActorUsing
->     , forkLoop
+>     , forkActor_
 >     , runActorUsing
->     , runLoop
+>     , runActor_
 >     ) where
 >
 > import Control.Monad
@@ -96,14 +96,15 @@ Now some functions for building Actor computations:
 >     where nextf = (`aseq` g) . nextActor <$> f i
 
 
-A Loop is just an Actor that ignores its input. We provide some useful
+An Actor_ is just an Actor that ignores its input. We provide some useful
 functions for building and running such computations:
 
-> -- | An Actor that discards its input, i.e. a simple loop.
-> type Loop = ActorM (NextActor ())
+> -- | An Actor that discards its input
+> type Actor_ = ActorM (NextActor ())
 >
-> -- | Continue with a Loop computation
-> continue_ :: Loop -> ActorM (NextActor i)
+> -- | Continue with an Actor_ computation, lifting it into the current Actor
+> -- input type
+> continue_ :: Actor_ -> ActorM (NextActor i)
 > continue_ = fmap (NextActor . fixConst . nextActor)
 >     where fixConst c = const $ continue_ $ c ()
 
@@ -127,7 +128,9 @@ actors send messages to. It is simply a Chan with hidden implementation.
         and reading these mailbox types.
 
      
-> -- | the buffered message passing medium used between actors
+> -- | a buffered message passing medium. This is used to send messages to
+> -- Actors and can also be used as a sink for output into IO from an Actor
+> -- system.
 > newtype Mailbox i = Mailbox { mailbox :: Chan i }
 >
 
@@ -190,13 +193,13 @@ is we would like to be able to send a message in IO
 > forkActorUsing b = forkA . actorHandler b
 >
 > -- | fork a looping computation which starts immediately
-> forkLoop :: (Action m)=> Loop -> m ()
-> forkLoop = forkA . runLoop  
+> forkActor_ :: (Action m)=> Actor_ -> m ()
+> forkActor_ = forkA . runActor_  
 >
-> -- | run a Loop actor in the main thread, returning when the computation exits
-> runLoop :: Loop -> IO ()
-> runLoop l = runActorM l >>= 
->              maybe (return ()) (runLoop . ($ ()) .  nextActor)
+> -- | run an Actor_ actor in the main thread, returning when the computation exits
+> runActor_ :: Actor_ -> IO ()
+> runActor_ l = runActorM l >>= 
+>              maybe (return ()) (runActor_ . ($ ()) .  nextActor)
 
 >
 > -- | run an Actor in the main thread, returning when the Actor exits
