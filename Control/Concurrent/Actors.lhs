@@ -106,11 +106,6 @@ Now some functions for making building Actor computations perhaps more readable:
 > done = mzero
 
 
-    > aseq :: Actor i -> Actor i -> Actor i
-    > aseq f g i = NextActor <$> (nextf <|> return g)
-    >     where nextf = (`aseq` g) . nextActor <$> f i
-
-
 An Actor_ is just an Actor that ignores its input. We provide some useful
 functions for building and running such computations:
 
@@ -414,25 +409,17 @@ Finally, the functions for forking Actors:
 This doesn't seem to be a popular class, unfortunately but it's useful for us
 here: it lets us transform a Mailbox/sink/processor of one input type to another
 
-It can be found in 
 
 > class Cofunctor f where
->     cofmap :: (a -> b) -> (f b -> f a)
+>     cofmap :: (b -> a) -> f a -> f b
 >
-> instance Cofunctor Mailbox where
->     ...
+> --instance Cofunctor Mailbox where
+> --    cofmap = undefined
 > 
 > instance Cofunctor Actor where
->     ...
+>     cofmap f a = Actor (fmap (cofmap f) . stepActor a . f)
 > 
 
-TODO: make this into cofmap instance for Actor:
-
-    > -- | Continue with an Actor_ computation, lifting it into the current Actor
-    > -- input type
-    > continue_ :: Actor_ -> Action (NextActor i)
-    > continue_ = fmap (NextActor . fixConst . nextActor)
-    >     where fixConst c = const $ continue_ $ c ()
 
 > -- HELPER:
 > void :: (Monad m)=> m a -> m ()
