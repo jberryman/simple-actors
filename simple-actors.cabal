@@ -11,9 +11,15 @@ Version:             0.0.1
 
 -- A short (one-line) description of the package.
 Synopsis:            A simple implementation of the actor model of concurrency
+Homepage:            http://coder.bsimmons.name/blog/2011/05/simple-actors-a-simple-actor-model-concurrency-library/
 
 -- A longer description of the package
 Description:         Simple concurrency primitives based on the Actor Model.
+                     .
+                     /CHANGELOG/: 0.1.0:
+                     .
+                     - Loop renamed Actor_
+                     - support passing synchronous messages
 
 -- The license under which the package is released.
 License:             BSD3

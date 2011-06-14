@@ -16,6 +16,9 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , sendSync
 >     -- ** Mailbox / Stream pairs
 >     , Stream(newChanPair)
+>     , Mailbox
+>     , ActorStream
+>     , IOStream
 >     -- ** Actor system output
 >     , receive
 >     , receiveList
@@ -36,6 +39,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Control.Monad.Trans.Maybe
 > import Control.Concurrent
 > import Control.Applicative
+
+
+
+> dEBUGGING = True
 
 
 TODO
@@ -132,112 +139,107 @@ functionality of the library more explicit.
 > -- | The input portion of our buffered message-passing medium. Actors can 
 > -- send messages to a Mailbox, where they will supply a corresponding
 > -- 'ActorStream' or 'IOStream'
-> newtype Mailbox i = Mailbox { mailbox :: ChanPair i }
+> newtype Mailbox i = Mailbox { mailbox :: LockedChan i }
 >
 > -- | A stream of messages, received via a corresponding 'Mailbox', which can
 > -- /only/ act as input for an 'Actor' computation
-> data ActorStream i = ActorStream { actorStream :: ChanPair i }
->
+> data ActorStream i = ActorStream 
+>     -- keep Mailbox wrapper, so we don't mix these up:
+>     { lockedMailbox :: Mailbox i
+>     , lockedStream :: LockedChan i 
+>     }
+
 
     NOTE: we don't use a locking mechanism for IOStream for now, but may 
      put some kind of signalling mechanism in later. This would probably 
      have to use STM to be useful and avoid race conditions.
 
+
 > -- | A stream of messages, received via a corresponding 'Mailbox', which can
 > -- be freely read from only in the IO Monad.
 > data IOStream i = IOStream { ioStream :: MessageChan i }
 
-See below for explanation of locking mechanism used here:
 
-> data ChanPair i = ChanPair { actorStream :: MessageChan i
->                            , readLock :: ReadLock 
->                            , sendLock :: SendLock
->                            }
+We "lock" the Chans behind an MVar to enable two things:
+    1) Sends will block until there is an Actor processing the stream
+    2) Attempting to fork on an ActorStream will block until no other Actor
+        is processing the stream
 
-To enable 'send's and 'fork's to block when a Mailbox pair has no Actor
-reading it, we share two MVars between the pair which act as locks:
+    NOTE: currently 'send's to a Mailbox with a corresponding IOStream will
+          never block. We should use an internal class to allow us to ditch the
+          MVar wrapping for sends to IOStream.
 
-> type ReadLock = MVar ()
+> type LockedChan i = MVar (Chan i)
 
-    HOW WE USE ReadLock:
-        initialization:
-            The MVar starts empty initially
+
+    HOW WE USE THE LockedChan PAIRS:
+    --------------------------------
+
+        newChanPair:
+            - create one newEmptyMVar for both 'lockedMailbox' and 'mailbox'
+            - create one newMVar from a newChan, for 'lockedStream'
+
+                         ActorStream
+                     --------    =======
+                    |  chan  |  |       |
+                     --------    =======
+                                 Mailbox
         forkActorOn:
-            blocks until it can write () to MVar, at which point the Actor starts
-        actor exit, or exception:
-            takes value from MVar
+            - blocks on 'takeMVar . lockedStream'
+            - (assert both MVars are empty)
+            - 'putMVar chan . lockedMailbox' (unblocking 'send'ers)
+            - (aser lockedStream MVar empty until Actor exits)
 
-> type SendLock = MVar ()
+        send:
+            - blocks on 'takeMVar . mailbox'
 
-    HOW WE USE SendLock:
-        actor start (single thread):
-            actor runner that acquired ReadLock puts ()
-        send (many concurrent):
-            blocks on a 'readMVar'
-        actor exit, or exception (single thread):
-            actor runner takes (), blocking any reader threads
+        done (or exception handled):
+            - (assert lockedStream empty (lockedMailbox may not be empty if the
+                exception was immediate))
+            - 'takeMVar . lockedMailbox' 
+            - 'putMVar chan . lockedStream' (unblocking 'forkActorsOn's)
 
-    PRETTY ILLUSTRATION: 
-
-                ^ (5)             ^ (4)
-      exit:     |                 |           read:
-             ----------        ----------  <--------> (3b)
-            | ReadLock |      | SendLock |    ---> 
-             ----------        ----------    --->  (3a)
-                ^^^               ^        
-      fork:     |||               |
-                   (1)             (2)
-
-    LOCKING PROCEDURE: 
-      fork:
-        1) many threads trying to fork on chan block on `putMVar`
-        2) forking thread that acquired 'ReadLock' puts to empty SendLock
-            (assert empty)
-      actor running, send:
-        3) a. Many threads trying to `send` blocked on `readMVar`
-           b. One wakes up, takes/puts, then sends a message to the Chan
-      exit:
-        4) actor runner thread blocks until last sender returns lock, then it
-           'takes', blocking other senders
-        5) actor runner thread 'takes' ReadLock, letting other runners fork it
-
-    PROBLEMS:
-        step 4) we want the runner to be able to immediately block senders, not
-                get stuck in the queue
-            
         
 
 The internal message type. The addition of an MVar allows for syncronous message
 passing between Actors:
 
 > type MessageChan i = Chan (Message i)
-> newtype Message i = Message (i, Maybe SyncToken)
->                   deriving Functor
+> newtype Message i = Message (Maybe SyncToken, i) deriving Functor
 > type SyncToken = MVar ()
 
+
     HOW WE USE SyncToken, PASSED WITH EACH MESSAGE:
+    -----------------------------------------------
+
         send:
-            Pass empty MVar, don't check it
+            - Pass empty MVar, don't check it
+
         sendSync:
-            Pass empty MVar, block until we can pop ()
+            - Pass empty MVar, block until we can pop ()
+
         actor receiver:
-            before acting on message, write a () to MVar
+            - before acting on message, write a () to MVar
 
 
 > -- | The class of Streams for output with a corresponding 'Mailbox'
 > class Stream s where
+>     -- | Create a new pair of input and output chans: a 'Mailbox' where
+>     -- messages can be sent, and an output stream type (currently either an 
+>     -- 'IOStream' or 'ActorStream')
 >     newChanPair :: (MonadAction m)=> m (Mailbox a, s a)
->     newChanPair = liftIOtoA $ 
->         wrapStream <$> (ChanPair <$> newChan <*> newEmptyMVar)
->
->     -- INTERNAL:
->     wrapStream :: ChanPair i -> s i
 >
 > instance Stream ActorStream where
->     wrapStream = ActorStream
+>     newChanPair = liftIOtoA $ do
+>         b <- Mailbox <$> newEmptyMVar
+>         str <- newChan >>= newMVar
+>         return (b, ActorStream str b)
 >
 > instance Stream IOStream where
->     wrapStream = IOStream . actorStream
+>     newChanPair = liftIOtoA $ do
+>         c <- newChan
+>         b <- Mailbox <$> newMVar c
+>         return (b, IOStream c)
 >
 
 
@@ -245,6 +247,7 @@ passing between Actors:
         We allow sending of messages to Actors in IO, treating the 
         main thread as something of an Actor with the special
         privilege to read arbitrarily from an IOStream.
+
 
 We are always synchronous IN THE MEDIUM and may be synchronous IN THE MESSAGE as
 well by choosing the appropriate 'send' function. 
@@ -262,53 +265,52 @@ can catch and (maybe) use to help garbage collection on the underlying Chan and
 in general keep things nice.
 
 
-    TODO: - change 'done' to 'giveUpControlToAnotherActor'?
-          - Change 'forkActorOn' to 'queueActorOn'?
 
-> -- | Send a message to an Actor asynchronously. However blocks if there is no
-> Actor currently processing the stream.
+> -- | Send a message to an Actor asynchronously. This does not wait for the
+> -- Actor to receive the message before returning. 
+> -- . 
+> -- However if we are sending to a Mailbox with a corresponding ActorStream, 
+> -- this will block while no Actor is processing the stream. 
+> -- . 
+> -- If the runtime determines that a new Actor will never take over, an
+> -- exception will be raised.
 > send :: (MonadAction m)=> Mailbox a -> a -> m ()
-> send b = liftIOtoA . writeChan (mailbox b) . Message . (,Nothing)
+> send (mailbox-> b) = liftIOtoA . send' . Message . (Nothing,)
+>     where send' m = do
+>           c <- readMVar b    -- block until actor processing
+>           writeChan c m 
 >
-> -- | Send a message to an Actor. Block until the actor accepts message. If the
-> -- Actor exits, and no other actors take over, this will block forever.
+> -- | Like 'send' but this blocks until the message is read in the
+> -- corresponding stream
 > sendSync :: (MonadAction m)=> Mailbox a -> a -> m ()
-> sendSync (mailbox-> b) a = do
->     -- block until this Chan has an Actor reading inputs from it:
->     -- NOTE: strictly speaking, this introduces a race condition, but for
->     --       our purposes I think this is okay.
->     readMVar $ readLock b
->     sv <- newEmptyMVar
->     writeChan
->     -- block until the actor starts processing our message
->     takeMVar sv >> return ()
+> sendSync (mailbox-> b) a = liftIOtoA $ do
+>     sv <- Just <$> newEmptyMVar
+>     let m = Message (sv, a)
+>     c <- readMVar b          -- block until actor processing
+>     writeChan c m 
+>     void $ takeMVar sv -- block until the actor reads message
 >     
 
-> -- | Read a message from a mailbox in the IO monad. This can be used as the
-> -- mechanism for output from an Actor system. Blocks if the actor is empty
-> receive :: Mailbox o -> IO o
-> receive = readChan . mailbox
+> -- | Read a message from an 'IOStream' in the IO monad. This can be used to
+> -- get output from an Actor system. This blocks until their is something to
+> -- return
+> receive :: IOStream o -> IO o
+> receive = (recv =<<) . readChan . ioStream
 
-> -- | Return a lazy list of mailbox contents
-> receiveList :: Mailbox o -> IO [o]
-> receiveList = getChanContents . mailbox
+> -- | Return a lazy list of 'IOStream' contents
+> receiveList :: IOStream o -> IO [o]
+> receiveList = mapM recv . getChanContents . ioStream
 
-> -- | create a new mailbox that Actors can be launched to read from or
-> -- send messages to in order to communicate with other actors
-> newMailbox :: (MonadAction m)=> m (Mailbox a)
-> newMailbox = liftIOtoA newChan >>= return . Mailbox
-
+> --HELPER:
+> recv (snc,o) = maybeDo (void . takeMVar) snc >> return o
 
 The MonadAction class represents environments in which we can operate on actors. That
 is we would like to be able to send a message in IO
 
 > -- | monads in the MonadAction class can participate in message passing and other
-> -- Actor operations
+> -- Actor operations. 
 > class Monad m => MonadAction m where
 >     liftIOtoA :: IO a -> m a
->
->     forkA :: IO () -> m ()
->     forkA io = liftIOtoA $ forkIO io >> return ()
 >
 > instance MonadAction IO where
 >     liftIOtoA = id
@@ -317,42 +319,97 @@ is we would like to be able to send a message in IO
 >     liftIOtoA = Action . liftIO
 
 
-
-
-> -- | fork an actor, returning its mailbox
-> forkActor :: (MonadAction m)=> Actor i -> m (Mailbox i)
-> forkActor a = do
->     b <- newMailbox
->     forkActorUsing b a
->     return b
->     
-> -- | fork an actor that reads from the supplied Mailbox
-> forkActorUsing :: (MonadAction m)=> Mailbox i -> Actor i -> m ()
-> forkActorUsing b = forkA . actorHandler b
->
-> -- | fork a looping computation which starts immediately
-> forkActor_ :: (MonadAction m)=> Actor_ -> m ()
-> forkActor_ = forkA . runActor_  
->
-> -- | run an Actor_ actor in the main thread, returning when the computation exits
-> runActor_ :: Actor_ -> IO ()
-> runActor_ l = runAction l >>= 
->              maybe (return ()) (runActor_ . ($ ()) .  nextActor)
-
->
-> -- | run an Actor in the main thread, returning when the Actor exits
-> runActorUsing :: Mailbox i -> Actor i -> IO ()
-> runActorUsing = actorHandler
-
-
 Internal function that feeds the actor computation its values. This may be
 extended to support additional functionality in the future.
 
-> actorHandler :: Mailbox i -> Actor i -> IO ()
-> actorHandler (mailbox->c) = loop
+
+> actorRunner :: Chan i -> Actor i -> IO ()
+> actorRunner c = loop
 >     where loop a = readChan c >>= 
->                     runAction . a >>= 
->                      maybe (return ()) (loop . nextActor)
+>                     runAction . stepActor a >>= 
+>                      maybeDo loop 
+
+
+..and a variation we export, where no Chan is involved:
+
+> -- | run an Actor_ actor in the main thread, returning when the computation exits
+> runActor_ :: Actor_ -> IO ()
+> runActor_ l = runAction $ stepActor l () >>= 
+>                maybeDo runActor_ 
+
+
+This function performs the actual forking of a new Actor computation, followed
+by the "cleanup" work of replacing the Chan into the 'lockedStream' MVar. The
+IO action it forks handles errors.
+
+
+> forkA :: ActorStream i -> (Chan i -> Actor i -> IO ()) -> IO ()
+> forkA astr = void . forkIO . (>> cleanup) . catchActor  where
+>
+>     cleanup = mask_ $ do 
+>          -- should only ever be blocked briefly:
+>         c <- takeMVar $ mailbox $ lockedMailbox astr
+>          -- (assert both MVars are now empty) --
+>         putMVar (lockedStream astr) c  -- (unblocks forking actors)
+
+
+No cleanup necessary here, just silence exception:
+
+> forkA_ :: (Actor_ -> IO ()) -> IO ()
+> forkA_ = void . forkIO . catchActor 
+
+
+Currently we catch `BlockedIndefinitelyOnMVar` and Actor exits. In such
+situations the runtime has determined that a `send` is blocked forever. This can
+propogate in that if an Actor exited due to this caught exception, senders to 
+that actor might do the same if no other Actor is forked on the stream.
+
+
+> catchActor :: IO () -> IO ()
+> catchActor io = try io >>= either blockedOnMvarHandler return
+>     -- raised when runtime finds Actor blocked forever on `send`:
+>     where blockedOnMvarHandler :: BlockedIndefinitelyOnMVar -> IO ()
+>           blockedOnMvarHandler = when dEBUGGING . print
+
+
+Finally, the functions for forking Actors:
+
+> -- | fork an actor, returning its input 'Mailbox'
+> forkActor :: (MonadAction m)=> Actor i -> m (Mailbox i)
+> forkActor a = do
+>     (b,str) <- newChanPair
+>    -- (assert 'str' full, 'b' empty) --
+>     forkActorUsing str a
+>     return b
+>
+>
+> -- | fork an actor that reads from the supplied 'ActorStream'. This blocks,
+> -- if another Actor is reading from the stream, until that Actor exits.
+> forkActorUsing :: (MonadAction m)=> ActorStream i -> Actor i -> m ()
+> forkActorUsing astr f = liftIOtoA $ do
+>     let b = lockedMailbox astr
+>         str = lockedStream astr
+>     -- block, waiting for input stream to be returned by other actors:
+>     c <- takeMVar str
+>  -- (assert both MVars in astr are now empty) --
+>     -- Fork actor computation, waiting for first input:
+>     forkA (actorRunner c f) astr
+>     -- put the chan into the MVar, unblocking senders (or forkA cleanup):
+>     putMVar (mailbox b) c
+>
+>
+> -- | fork a looping computation which starts immediately. Equivalent to
+> -- launching an 'Actor_' and another 'Actor' that sends an infinite stream of
+> -- ()s
+> forkActor_ :: (MonadAction m)=> Actor_ -> m ()
+> forkActor_ = forkA_ . runActor_  
+>
+>
+> -- | run an Actor computation in the main thread, returning when the Actor exits
+> runActorUsing :: ActorStream i -> Actor i -> IO ()
+> runActorUsing = actorRunner
+
+
 
 This doesn't seem to be a popular class, unfortunately but it's useful for us
 here: it lets us transform a Mailbox/sink/processor of one input type to another
@@ -377,3 +434,10 @@ TODO: make this into cofmap instance for Actor:
     > continue_ = fmap (NextActor . fixConst . nextActor)
     >     where fixConst c = const $ continue_ $ c ()
 
+> -- HELPER:
+> void :: (Monad m)=> m a -> m ()
+> void = (>> return ())
+
+> -- HELPER:
+> maybeDo :: (Monad m) => (a -> m ()) -> Maybe a -> m ()
+> maybeDo = maybe (return ())
