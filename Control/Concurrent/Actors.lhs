@@ -331,6 +331,14 @@ extended to support additional functionality in the future.
 >                      maybeDo loop 
 
 
+..a simple exported runnner that does not fork, and works in IO:
+
+> -- | run an Actor computation in the main thread, returning when the Actor
+> -- exits. No exceptions are caught.
+> runActorUsing :: ActorStream i -> Actor i -> IO ()
+> runActorUsing astr f = flip actorRunner f =<< unlockStream astr
+
+
 ..and a variation we export, where no Chan is involved:
 
 > -- | run an Actor_ actor in the main thread, returning when the computation exits
@@ -392,15 +400,13 @@ Finally, the functions for forking Actors:
 > -- if another Actor is reading from the stream, until that Actor exits.
 > forkActorUsing :: (MonadAction m)=> ActorStream i -> Actor i -> m ()
 > forkActorUsing astr f = liftIOtoA $ do
->     let b = lockedMailbox astr
->         str = lockedStream astr
->     -- block, waiting for input stream to be returned by other actors:
->     c <- takeMVar str
->  -- (assert both MVars in astr are now empty) --
+>     let b = mailbox $ lockedMailbox astr
+>     -- block, waiting for other actors to give up control:
+>     c <- unlockStream astr
 >     -- Fork actor computation, waiting for first input:
 >     forkA astr (actorRunner c f) 
 >     -- put the chan into the MVar, unblocking senders (or forkA cleanup):
->     putMVar (mailbox b) c
+>     putMVar b c
 >
 >
 > -- | fork a looping computation which starts immediately. Equivalent to
@@ -409,11 +415,13 @@ Finally, the functions for forking Actors:
 > forkActor_ :: (MonadAction m)=> Actor_ -> m ()
 > forkActor_ = liftIOtoA . forkA_ . runActor_  
 >
->
-> -- | run an Actor computation in the main thread, returning when the Actor exits
-> runActorUsing :: ActorStream i -> Actor i -> IO ()
-> runActorUsing = actorRunner
 
+
+> -- Blocks until we can take the Chan from the actorStream MVar to run an 
+> -- actor on its stream:
+> unlockStream :: ActorStream i -> IO (MessageChan i)
+> unlockStream = takeMVar . lockedStream
+>              -- (Then assert both MVars are empty) --
 
 
 
