@@ -1,4 +1,4 @@
-> {-# LANGUAGE GeneralizedNewtypeDeriving, ViewPatterns #-}
+> {-# LANGUAGE CPP, GeneralizedNewtypeDeriving, ViewPatterns #-}
 
 This module exports a simple, idiomatic implementation of the Actor Model.
 
@@ -39,8 +39,19 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Control.Monad.Trans.Maybe
 > import Control.Concurrent
 > import Control.Applicative
-> import Control.Exception(try,block,BlockedIndefinitelyOnMVar)
 
+#if MIN_VERSION_base(4,3,0)
+> import Control.Exception(try,mask_,BlockedIndefinitelyOnMVar)
+> 
+#else
+> import Control.Exception(try,block,BlockedIndefinitelyOnMVar)
+>
+> mask_ :: IO a -> IO a
+> mask_ = block
+> 
+> void :: (Functor f)=> f a -> f ()
+> void = (>> return ())
+#endif
 
 
 > dEBUGGING = True
@@ -355,7 +366,7 @@ IO action it forks handles errors.
 > forkA :: ActorStream i -> IO () -> IO ()
 > forkA astr = void . forkIO . (>> cleanup) . catchActor  where
 >
->     cleanup = block $ do 
+>     cleanup = mask_ $ do 
 >          -- should only ever be blocked briefly:
 >         c <- takeMVar $ mailbox $ lockedMailbox astr
 >          -- (assert both MVars are now empty) --
@@ -439,10 +450,6 @@ here: it lets us transform a Mailbox/sink/processor of one input type to another
 >     cofmap f a = Actor (fmap (cofmap f) . stepActor a . f)
 > 
 
-
-> -- HELPER:
-> void :: (Monad m)=> m a -> m ()
-> void = (>> return ())
 
 > -- HELPER:
 > maybeDo :: (Monad m) => (a -> m ()) -> Maybe a -> m ()
