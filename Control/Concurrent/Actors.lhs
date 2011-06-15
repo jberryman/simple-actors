@@ -27,7 +27,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , forkActor
 >     , forkActorUsing
 >     , forkActor_
->     -- ** Running in current IO thread
+>     -- ** Running Actor computations in current IO thread
 >     , runActorUsing
 >     , runActor_
 >     -- * Supporting classes
@@ -39,6 +39,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Control.Monad.Trans.Maybe
 > import Control.Concurrent
 > import Control.Applicative
+> import Control.Exception(try,block,BlockedIndefinitelyOnMVar)
 
 
 
@@ -115,7 +116,7 @@ functions for building and running such computations:
 > -- | Continue with an Actor_ computation, lifting it into the current Actor
 > -- input type
 > --
-> -- > continue_ = cofmap (const ())
+> -- > continue_ = continue . cofmap (const ())
 > continue_ :: Actor_ -> Action (Actor i)
 > continue_ = return . cofmap (const ())
 
@@ -164,7 +165,7 @@ We "lock" the Chans behind an MVar to enable two things:
           never block. We should use an internal class to allow us to ditch the
           MVar wrapping for sends to IOStream.
 
-> type LockedChan i = MVar (Chan i)
+> type LockedChan i = MVar (MessageChan i)
 
 
     HOW WE USE THE LockedChan PAIRS:
@@ -200,8 +201,13 @@ The internal message type. The addition of an MVar allows for syncronous message
 passing between Actors:
 
 > type MessageChan i = Chan (Message i)
-> newtype Message i = Message (Maybe SyncToken, i) deriving Functor
+> newtype Message i = Message { message :: (Maybe SyncToken, i) } 
+>                   deriving Functor
 > type SyncToken = MVar ()
+>
+> readMessageChan :: MessageChan i -> IO i
+> readMessageChan c = readChan c >>= 
+>                      (\(s,i)-> i <$ maybeDo takeMVar s) . message
 
 
     HOW WE USE SyncToken, PASSED WITH EACH MESSAGE:
@@ -228,7 +234,7 @@ passing between Actors:
 >     newChanPair = liftIOtoA $ do
 >         b <- Mailbox <$> newEmptyMVar
 >         str <- newChan >>= newMVar
->         return (b, ActorStream str b)
+>         return (b, ActorStream b str)
 >
 > instance Stream IOStream where
 >     newChanPair = liftIOtoA $ do
@@ -270,7 +276,7 @@ in general keep things nice.
 > -- If the runtime determines that a new Actor will never take over, an
 > -- exception will be raised.
 > send :: (MonadAction m)=> Mailbox a -> a -> m ()
-> send (mailbox-> b) = liftIOtoA . send' . Message . (Nothing,)
+> send (mailbox-> b) = liftIOtoA . send' . Message . (,) Nothing
 >     where send' m = do
 >           c <- readMVar b    -- block until actor processing
 >           writeChan c m 
@@ -279,9 +285,9 @@ in general keep things nice.
 > -- corresponding stream
 > sendSync :: (MonadAction m)=> Mailbox a -> a -> m ()
 > sendSync (mailbox-> b) a = liftIOtoA $ do
->     sv <- Just <$> newEmptyMVar
->     let m = Message (sv, a)
->     c <- readMVar b          -- block until actor processing
+>     sv <- newEmptyMVar
+>     let m = Message (Just sv, a)
+>     c <- readMVar b    -- block until actor processing
 >     writeChan c m 
 >     void $ takeMVar sv -- block until the actor reads message
 >     
@@ -294,10 +300,10 @@ in general keep things nice.
 
 > -- | Return a lazy list of 'IOStream' contents
 > receiveList :: IOStream o -> IO [o]
-> receiveList = mapM recv . getChanContents . ioStream
+> receiveList = (mapM recv =<<) . getChanContents . ioStream
 
 > --HELPER:
-> recv (snc,o) = maybeDo (void . takeMVar) snc >> return o
+> recv (Message(snc,o)) = maybeDo (void . takeMVar) snc >> return o
 
 The MonadAction class represents environments in which we can operate on actors. That
 is we would like to be able to send a message in IO
@@ -318,9 +324,9 @@ Internal function that feeds the actor computation its values. This may be
 extended to support additional functionality in the future.
 
 
-> actorRunner :: Chan i -> Actor i -> IO ()
+> actorRunner :: MessageChan i -> Actor i -> IO ()
 > actorRunner c = loop
->     where loop a = readChan c >>= 
+>     where loop a = readMessageChan c >>= 
 >                     runAction . stepActor a >>= 
 >                      maybeDo loop 
 
@@ -329,7 +335,7 @@ extended to support additional functionality in the future.
 
 > -- | run an Actor_ actor in the main thread, returning when the computation exits
 > runActor_ :: Actor_ -> IO ()
-> runActor_ l = runAction $ stepActor l () >>= 
+> runActor_ l = (runAction $ stepActor l ()) >>= 
 >                maybeDo runActor_ 
 
 
@@ -338,10 +344,10 @@ by the "cleanup" work of replacing the Chan into the 'lockedStream' MVar. The
 IO action it forks handles errors.
 
 
-> forkA :: ActorStream i -> (Chan i -> Actor i -> IO ()) -> IO ()
+> forkA :: ActorStream i -> IO () -> IO ()
 > forkA astr = void . forkIO . (>> cleanup) . catchActor  where
 >
->     cleanup = mask_ $ do 
+>     cleanup = block $ do 
 >          -- should only ever be blocked briefly:
 >         c <- takeMVar $ mailbox $ lockedMailbox astr
 >          -- (assert both MVars are now empty) --
@@ -350,8 +356,12 @@ IO action it forks handles errors.
 
 No cleanup necessary here, just silence exception:
 
-> forkA_ :: (Actor_ -> IO ()) -> IO ()
+> forkA_ :: IO () -> IO ()
 > forkA_ = void . forkIO . catchActor 
+
+TODO:
+    - use bracket in forkA (move `cleanup` into own tlf)
+    - create aliases for void/mask in ifdef to use base 4.2/3
 
 
 Currently we catch `BlockedIndefinitelyOnMVar` and Actor exits. In such
@@ -388,7 +398,7 @@ Finally, the functions for forking Actors:
 >     c <- takeMVar str
 >  -- (assert both MVars in astr are now empty) --
 >     -- Fork actor computation, waiting for first input:
->     forkA (actorRunner c f) astr
+>     forkA astr (actorRunner c f) 
 >     -- put the chan into the MVar, unblocking senders (or forkA cleanup):
 >     putMVar (mailbox b) c
 >
@@ -397,12 +407,13 @@ Finally, the functions for forking Actors:
 > -- launching an 'Actor_' and another 'Actor' that sends an infinite stream of
 > -- ()s
 > forkActor_ :: (MonadAction m)=> Actor_ -> m ()
-> forkActor_ = forkA_ . runActor_  
+> forkActor_ = liftIOtoA . forkA_ . runActor_  
 >
 >
 > -- | run an Actor computation in the main thread, returning when the Actor exits
 > runActorUsing :: ActorStream i -> Actor i -> IO ()
 > runActorUsing = actorRunner
+
 
 
 
