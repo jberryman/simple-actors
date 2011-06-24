@@ -31,7 +31,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , runActorUsing
 >     , runActor_
 >     -- * Supporting classes
->     , Cofunctor(..)
+>     , module Data.Cofunctor --necessary?
 >     ) where
 >
 > import Control.Monad
@@ -39,6 +39,16 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Control.Monad.Trans.Maybe
 > import Control.Concurrent
 > import Control.Applicative
+> 
+> import Data.Cofunctor
+
+
+
+
+------
+
+These macros are only provided by cabal unfortunately.... makes it difficult to
+work with GHCi:
 
 #if MIN_VERSION_base(4,3,0)
 > import Control.Exception(try,mask_,BlockedIndefinitelyOnMVar)
@@ -49,42 +59,51 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > mask_ :: IO a -> IO a
 > mask_ = block
 > 
-> void :: (Functor f)=> f a -> f ()
+> void :: (Monad m)=> m a -> m ()
 > void = (>> return ())
 #endif
 
+------
+
+It would  be nice to put this in a CPP conditional block. Does cabal do this
+automatically when running built-in tests?
 
 > dEBUGGING = True
+>
+> -- When dEBUGGING is False at compile time and optimizations are turned on, 
+> -- this should completely disappear
+> assertIO :: IO Bool -> IO ()
+> assertIO io | dEBUGGING = io >>= flip assert (return ())
+>             | otherwise = return ()
+
 
 
 TODO
-=====
+-----
+    - move Cofunctor to a separate module and import/export
+    - make ActorStream a Functor
+    - define Mailbox as a GADT and make a cofunctor
 
-FIRST:
--------
-    x remove aseq
-    x re-define Actor as a newtype
-    x change ActorM to Action, Action class to MonadAction
-    x new mailbox types, in pairs with MVar, class instances for both (and Cofunctor)
-    x 'newChanPair' polymorphic with supporting Output class
-        Fix things to work with new Actors and Chans:
-        - re-define 'send' function
-    - create a 'sendSync'
-    - make forkActor block until exclusive access granted
+    - sendSync should return a Bool indicating success or failure
+        - catch BlockedIndefinitelyOnMVar and return False
+    - add assertIOs and test, test, test
+
     - better documentation:
         - show implementation in docs when it reveals something
         - examples
         - explanations when useful
 
-LATER:
-------
     - test performance of send blocking and not blocking
-    - automated tests
-    - built-in awesome exception handling, that helps the garbage collector
+    - automated tests / assertions (with HUnit?)
+    - better exception handling with an eye for helping the GC
+
     - export some useful Actors:
         - 'loop' which keeps consuming
         - function returning an actor to "load balance" inputs over multiple
           actors
+
+
+
 
 
 Here we define the Actor environment, similar to IO, in which we can launch new
@@ -255,17 +274,6 @@ passing between Actors:
 >
 
 
-    IMPLEMENTATION NOTE: 
-        We allow sending of messages to Actors in IO, treating the 
-        main thread as something of an Actor with the special
-        privilege to read arbitrarily from an IOStream.
-
-
-We are always synchronous IN THE MEDIUM and may be synchronous IN THE MESSAGE as
-well by choosing the appropriate 'send' function. 
-
-...
-
 A channel of communication should never have senders without a receiver. To
 enforce this idea, we make 'send' operations block until an Actor is consuming
 the corresponding stream. When the runtime determines that a sender will be
@@ -275,6 +283,9 @@ This doesn't guarentee that all messages in the Chan will be processed, but in
 such a situation, hopefully a BlockedIndefinitelyOnMVar will be raised, which we
 can catch and (maybe) use to help garbage collection on the underlying Chan and
 in general keep things nice.
+
+In a way, we are always synchronous IN THE MEDIUM and may be synchronous 
+IN THE MESSAGE as well by choosing the appropriate 'send' function. 
 
 
 
@@ -303,6 +314,10 @@ in general keep things nice.
 >     void $ takeMVar sv -- block until the actor reads message
 >     
 
+
+We allow sending of messages to Actors in IO, treating the main thread as 
+an Actor with the special privilege to read arbitrarily from an IOStream.
+
 > -- | Read a message from an 'IOStream' in the IO monad. This can be used to
 > -- get output from an Actor system. This blocks until their is something to
 > -- return
@@ -316,8 +331,9 @@ in general keep things nice.
 > --HELPER:
 > recv (Message(snc,o)) = maybeDo (void . takeMVar) snc >> return o
 
-The MonadAction class represents environments in which we can operate on actors. That
-is we would like to be able to send a message in IO
+
+The MonadAction class represents environments in which we can operate on actors. 
+That is we would like to be able to send a message in IO and Action.
 
 > -- | monads in the MonadAction class can participate in message passing and other
 > -- Actor operations. 
@@ -331,9 +347,7 @@ is we would like to be able to send a message in IO
 >     liftIOtoA = Action . liftIO
 
 
-Internal function that feeds the actor computation its values. This may be
-extended to support additional functionality in the future.
-
+Internal function that feeds the actor computation its values.
 
 > actorRunner :: MessageChan i -> Actor i -> IO ()
 > actorRunner c = loop
@@ -354,7 +368,7 @@ extended to support additional functionality in the future.
 
 > -- | run an Actor_ actor in the main thread, returning when the computation exits
 > runActor_ :: Actor_ -> IO ()
-> runActor_ l = (runAction $ stepActor l ()) >>= 
+> runActor_ l = runAction (stepActor l ()) >>= 
 >                maybeDo runActor_ 
 
 
@@ -362,7 +376,7 @@ This function performs the actual forking of a new Actor computation, followed
 by the "cleanup" work of replacing the Chan into the 'lockedStream' MVar. The
 IO action it forks handles errors.
 
-
+> -- USE `bracket` HERE?:
 > forkA :: ActorStream i -> IO () -> IO ()
 > forkA astr = void . forkIO . (>> cleanup) . catchActor  where
 >
@@ -378,15 +392,11 @@ No cleanup necessary here, just silence exception:
 > forkA_ :: IO () -> IO ()
 > forkA_ = void . forkIO . catchActor 
 
-TODO:
-    - use bracket in forkA (move `cleanup` into own tlf)
-    - create aliases for void/mask in ifdef to use base 4.2/3
-
 
 Currently we catch `BlockedIndefinitelyOnMVar` and Actor exits. In such
 situations the runtime has determined that a `send` is blocked forever. This can
-propogate in that if an Actor exited due to this caught exception, senders to 
-that actor might do the same if no other Actor is forked on the stream.
+propogate, in that if an Actor exited due to this caught exception, senders to 
+that actor might do the same if no other Actor is forked on the Stream.
 
 
 > catchActor :: IO () -> IO ()
@@ -426,8 +436,7 @@ Finally, the functions for forking Actors:
 > forkActor_ :: (MonadAction m)=> Actor_ -> m ()
 > forkActor_ = liftIOtoA . forkA_ . runActor_  
 >
-
-
+>
 > -- Blocks until we can take the Chan from the actorStream MVar to run an 
 > -- actor on its stream:
 > unlockStream :: ActorStream i -> IO (MessageChan i)
@@ -436,13 +445,7 @@ Finally, the functions for forking Actors:
 
 
 
-This doesn't seem to be a popular class, unfortunately but it's useful for us
-here: it lets us transform a Mailbox/sink/processor of one input type to another
-
-
-> class Cofunctor f where
->     cofmap :: (b -> a) -> f a -> f b
->
+> --TODO: REDEFINE MAILBOX TO SUPPORT THIS:
 > --instance Cofunctor Mailbox where
 > --    cofmap = undefined
 > 
@@ -454,3 +457,5 @@ here: it lets us transform a Mailbox/sink/processor of one input type to another
 > -- HELPER:
 > maybeDo :: (Monad m) => (a -> m ()) -> Maybe a -> m ()
 > maybeDo = maybe (return ())
+
+
