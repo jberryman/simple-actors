@@ -51,10 +51,10 @@ These macros are only provided by cabal unfortunately.... makes it difficult to
 work with GHCi:
 
 #if MIN_VERSION_base(4,3,0)
-> import Control.Exception(try,mask_,BlockedIndefinitelyOnMVar)
+> import Control.Exception(assert,try,mask_,BlockedIndefinitelyOnMVar)
 > 
 #else
-> import Control.Exception(try,block,BlockedIndefinitelyOnMVar)
+> import Control.Exception(assert,try,block,BlockedIndefinitelyOnMVar)
 >
 > mask_ :: IO a -> IO a
 > mask_ = block

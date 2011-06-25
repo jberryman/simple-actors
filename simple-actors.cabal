@@ -7,7 +7,7 @@ Name:                simple-actors
 -- The package version. See the Haskell package versioning policy
 -- (http://www.haskell.org/haskellwiki/Package_versioning_policy) for
 -- standards guiding when and how versions should be incremented.
-Version:             0.0.1
+Version:             0.2.0
 
 -- A short (one-line) description of the package.
 Synopsis:            A simple implementation of the actor model of concurrency
@@ -16,10 +16,15 @@ Homepage:            http://coder.bsimmons.name/blog/2011/05/simple-actors-a-sim
 -- A longer description of the package
 Description:         Simple concurrency primitives based on the Actor Model.
                      .
-                     /CHANGELOG/: 0.1.0:
+                     /CHANGELOG/: 0.2.0:
                      .
                      - Loop renamed Actor_
                      - support passing synchronous messages
+                     - ActorM renamed Action
+                     - Mailbox split into Mailbox/ActorStream pairs
+                     - blocking on sends to non-existent actor, or forking on in-use 'ActorStream'
+                     - catch blocked MVar exceptions causing Actor exit.
+                     .
 
 -- The license under which the package is released.
 License:             BSD3
@@ -54,12 +59,15 @@ Cabal-version:       >=1.2
 
 Library
   -- Modules exported by the library.
-  Exposed-modules:     Control.Concurrent.Actors
+  Exposed-modules:     Control.Concurrent.Actors 
+                     , Data.Cofunctor
   
   -- Packages needed in order to build this package.
   Build-depends:      transformers
                     , base >= 4 && < 5    
-  
+ 
+  ghc-options:       -Wall
+
   -- Modules not exported by this package.
   -- Other-modules:       
   
