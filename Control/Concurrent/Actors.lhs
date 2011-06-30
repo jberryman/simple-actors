@@ -1,4 +1,4 @@
-> {-# LANGUAGE CPP, GeneralizedNewtypeDeriving, ViewPatterns #-}
+> {-# LANGUAGE CPP, GeneralizedNewtypeDeriving, ViewPatterns, GADTs #-}
 
 This module exports a simple, idiomatic implementation of the Actor Model.
 
@@ -40,6 +40,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Control.Concurrent
 > import Control.Applicative
 > 
+> -- provided by simple-actors:
 > import Data.Cofunctor
 
 
@@ -80,9 +81,8 @@ automatically when running built-in tests?
 
 TODO
 -----
-    - move Cofunctor to a separate module and import/export
-    - make ActorStream a Functor
     - define Mailbox as a GADT and make a cofunctor
+    - make ActorStream a GADT and make it and IOStream a Functor
 
     - sendSync should return a Bool indicating success or failure
         - catch BlockedIndefinitelyOnMVar and return False
@@ -115,6 +115,7 @@ the user to enforce these restrictions.
 >                  deriving (Monad, Functor, Applicative, 
 >                            Alternative, MonadPlus, MonadIO)
 >
+> runAction :: Action a -> IO (Maybe a)
 > runAction = runMaybeT . action
 
 First we define an Actor: a function that takes an input, maybe returning a new
@@ -165,13 +166,13 @@ functionality of the library more explicit.
 > -- | The input portion of our buffered message-passing medium. Actors can 
 > -- send messages to a Mailbox, where they will supply a corresponding
 > -- 'ActorStream' or 'IOStream'
-> newtype Mailbox i = Mailbox { mailbox :: LockedChan i }
+> data Mailbox i where
+>     Mailbox :: LockedChan a -> (i -> a) -> Mailbox i
 >
 > -- | A stream of messages, received via a corresponding 'Mailbox', which can
 > -- /only/ act as input for an 'Actor' computation
 > data ActorStream i = ActorStream 
->     -- keep Mailbox wrapper, so we don't mix these up:
->     { lockedMailbox :: Mailbox i
+>     { lockedMailbox :: LockedChan i
 >     , lockedStream :: LockedChan i 
 >     }
 
@@ -255,6 +256,7 @@ passing between Actors:
 
 > -- | The class of Streams for output with a corresponding 'Mailbox'
 > class Stream s where
+>
 >     -- | Create a new pair of input and output chans: a 'Mailbox' where
 >     -- messages can be sent, and an output stream type (currently either an 
 >     -- 'IOStream' or 'ActorStream')
@@ -262,15 +264,20 @@ passing between Actors:
 >
 > instance Stream ActorStream where
 >     newChanPair = liftIOtoA $ do
->         b <- Mailbox <$> newEmptyMVar
+>         lc <- newEmptyMVar
 >         str <- newChan >>= newMVar
->         return (b, ActorStream b str)
+>         return (Mailbox lc id, ActorStream lc str)
 >
+
+for now, when we make an IOStream / Mailbox pair, the internal Chan is made
+available immediately to senders, so senders don't block waiting for a reader in
+IO, as they do with an ActorStream (see below):
+
 > instance Stream IOStream where
 >     newChanPair = liftIOtoA $ do
 >         c <- newChan
->         b <- Mailbox <$> newMVar c
->         return (b, IOStream c)
+>         lc <- newMVar c
+>         return (Mailbox lc id, IOStream c)
 >
 
 
@@ -298,7 +305,7 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 > -- If the runtime determines that a new Actor will never take over, an
 > -- exception will be raised.
 > send :: (MonadAction m)=> Mailbox a -> a -> m ()
-> send (mailbox-> b) = liftIOtoA . send' . Message . (,) Nothing
+> send (Mailbox b f) = liftIOtoA . send' . Message . (,) Nothing . f
 >     where send' m = do
 >           c <- readMVar b    -- block until actor processing
 >           writeChan c m 
@@ -306,9 +313,9 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 > -- | Like 'send' but this blocks until the message is read in the
 > -- corresponding stream
 > sendSync :: (MonadAction m)=> Mailbox a -> a -> m ()
-> sendSync (mailbox-> b) a = liftIOtoA $ do
+> sendSync (Mailbox b f) a = liftIOtoA $ do
 >     sv <- newEmptyMVar
->     let m = Message (Just sv, a)
+>     let m = Message (Just sv, f a)
 >     c <- readMVar b    -- block until actor processing
 >     writeChan c m 
 >     void $ takeMVar sv -- block until the actor reads message
@@ -329,6 +336,7 @@ an Actor with the special privilege to read arbitrarily from an IOStream.
 > receiveList = (mapM recv =<<) . getChanContents . ioStream
 
 > --HELPER:
+> recv :: Message b -> IO b
 > recv (Message(snc,o)) = maybeDo (void . takeMVar) snc >> return o
 
 
@@ -379,12 +387,11 @@ IO action it forks handles errors.
 > -- USE `bracket` HERE?:
 > forkA :: ActorStream i -> IO () -> IO ()
 > forkA astr = void . forkIO . (>> cleanup) . catchActor  where
->
 >     cleanup = mask_ $ do 
 >          -- should only ever be blocked briefly:
->         c <- takeMVar $ mailbox $ lockedMailbox astr
+>         c <- takeMVar $ lockedMailbox astr
 >          -- (assert both MVars are now empty) --
->         putMVar (lockedStream astr) c  -- (unblocks forking actors)
+>         putMVar (lockedStream astr) c  -- unblocks forking actors
 
 
 No cleanup necessary here, just silence exception:
@@ -394,9 +401,12 @@ No cleanup necessary here, just silence exception:
 
 
 Currently we catch `BlockedIndefinitelyOnMVar` and Actor exits. In such
-situations the runtime has determined that a `send` is blocked forever. This can
-propogate, in that if an Actor exited due to this caught exception, senders to 
-that actor might do the same if no other Actor is forked on the Stream.
+situations the runtime has determined that a `send` is blocked forever. 
+
+This can propogate: if an Actor exited due to this caught exception it will 
+exit. Then either an actor that has been blocked on that ActorStream will take 
+over, or senders to the dead ActorStream will raise a BlockedIndefinitelyOnMVar
+and exit themselves.
 
 
 > catchActor :: IO () -> IO ()
@@ -421,7 +431,7 @@ Finally, the functions for forking Actors:
 > -- if another Actor is reading from the stream, until that Actor exits.
 > forkActorUsing :: (MonadAction m)=> ActorStream i -> Actor i -> m ()
 > forkActorUsing astr f = liftIOtoA $ do
->     let b = mailbox $ lockedMailbox astr
+>     let b = lockedMailbox astr
 >     -- block, waiting for other actors to give up control:
 >     c <- unlockStream astr
 >     -- Fork actor computation, waiting for first input:
@@ -445,14 +455,16 @@ Finally, the functions for forking Actors:
 
 
 
-> --TODO: REDEFINE MAILBOX TO SUPPORT THIS:
-> --instance Cofunctor Mailbox where
-> --    cofmap = undefined
+> instance Cofunctor Mailbox where
+>     cofmap f' (Mailbox c f) = Mailbox c (f . f')
 > 
 > instance Cofunctor Actor where
 >     cofmap f a = Actor (fmap (cofmap f) . stepActor a . f)
 > 
-
+> {-
+> instance Functor IOStream where
+> instance Functor ActorStream where
+> -}
 
 > -- HELPER:
 > maybeDo :: (Monad m) => (a -> m ()) -> Maybe a -> m ()
