@@ -81,8 +81,6 @@ automatically when running built-in tests?
 
 TODO
 -----
-    - make ActorStream a GADT and make it and IOStream a Functor
-
     - sendSync should return a Bool indicating success or failure
         - catch BlockedIndefinitelyOnMVar and return False
     - add assertIOs and test, test, test
@@ -182,7 +180,8 @@ functionality of the library more explicit.
 
 > -- | A stream of messages, received via a corresponding 'Mailbox', which can
 > -- be freely read from only in the IO Monad.
-> data IOStream i = IOStream { ioStream :: MessageChan i }
+> data IOStream i where 
+>      IOStream :: MessageChan a -> (a -> i) -> IOStream i
 
 
 We "lock" the Chans behind an MVar to enable two things:
@@ -275,7 +274,7 @@ IO, as they do with an ActorStream (see below):
 >     newChanPair = liftIOtoA $ do
 >         c <- newChan
 >         lc <- newMVar c
->         return (Mailbox lc id, IOStream c)
+>         return (Mailbox lc id, IOStream c id)
 >
 
 
@@ -327,11 +326,11 @@ an Actor with the special privilege to read arbitrarily from an IOStream.
 > -- get output from an Actor system. This blocks until their is something to
 > -- return
 > receive :: IOStream o -> IO o
-> receive = (recv =<<) . readChan . ioStream
+> receive (IOStream c f) = readChan c >>= recv . fmap f
 
 > -- | Return a lazy list of 'IOStream' contents
 > receiveList :: IOStream o -> IO [o]
-> receiveList = (mapM recv =<<) . getChanContents . ioStream
+> receiveList (IOStream c f) = getChanContents c >>= mapM (recv . fmap f)
 
 > --HELPER:
 > recv :: Message b -> IO b
@@ -457,7 +456,7 @@ Finally, the functions for forking Actors:
 > 
 > 
 > instance Functor IOStream where
->     fmap = undefined
+>     fmap f' (IOStream c f) = IOStream c (f' . f)
 >
 > instance Functor ActorStream where
 >     fmap f' (ActorStream lM lS f) = ActorStream lM lS (f' . f)
