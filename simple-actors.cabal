@@ -10,11 +10,16 @@ Name:                simple-actors
 Version:             0.2.0
 
 -- A short (one-line) description of the package.
-Synopsis:            A simple implementation of the actor model of concurrency
+Synopsis:            A library for more structured concurrent programming, based
+                     on the Actor Model
 Homepage:            http://coder.bsimmons.name/blog/2011/05/simple-actors-a-simple-actor-model-concurrency-library/
 
 -- A longer description of the package
-Description:         Simple concurrency primitives based on the Actor Model.
+Description:         simple-actors is a library of concurrency primitives for
+                     more structured concurrent programs, based on the Actor 
+                     Model. Computations are structured as "Actors" which take a
+                     single input value, perform some 'Action's, and return the
+                     Actor to process the next input message it receives.
                      .
                      /CHANGELOG/: 0.2.0:
                      .
@@ -23,7 +28,8 @@ Description:         Simple concurrency primitives based on the Actor Model.
                      - ActorM renamed Action
                      - Mailbox split into Mailbox/ActorStream pairs
                      - blocking on sends to non-existent actor, or forking on in-use 'ActorStream'
-                     - catch blocked MVar exceptions causing Actor exit.
+                     - catch blocked MVar exceptions. make Actor exit.
+                     - Functor / Cofunctor instances for Mailbox/*Stream pairs
                      .
 
 -- The license under which the package is released.
