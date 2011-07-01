@@ -81,7 +81,6 @@ automatically when running built-in tests?
 
 TODO
 -----
-    - define Mailbox as a GADT and make a cofunctor
     - make ActorStream a GADT and make it and IOStream a Functor
 
     - sendSync should return a Bool indicating success or failure
@@ -171,10 +170,9 @@ functionality of the library more explicit.
 >
 > -- | A stream of messages, received via a corresponding 'Mailbox', which can
 > -- /only/ act as input for an 'Actor' computation
-> data ActorStream i = ActorStream 
->     { lockedMailbox :: LockedChan i
->     , lockedStream :: LockedChan i 
->     }
+> data ActorStream i where
+>     --             lockedMailbox   lockedStream       f
+>     ActorStream :: LockedChan a -> LockedChan a -> (a -> i) -> ActorStream i
 
 
     NOTE: we don't use a locking mechanism for IOStream for now, but may 
@@ -266,7 +264,7 @@ passing between Actors:
 >     newChanPair = liftIOtoA $ do
 >         lc <- newEmptyMVar
 >         str <- newChan >>= newMVar
->         return (Mailbox lc id, ActorStream lc str)
+>         return (Mailbox lc id, ActorStream lc str id)
 >
 
 for now, when we make an IOStream / Mailbox pair, the internal Chan is made
@@ -357,10 +355,10 @@ That is we would like to be able to send a message in IO and Action.
 
 Internal function that feeds the actor computation its values.
 
-> actorRunner :: MessageChan i -> Actor i -> IO ()
-> actorRunner c = loop
+> actorRunner :: Actor i -> (a -> i) -> MessageChan a -> IO ()
+> actorRunner aI f c = loop aI
 >     where loop a = readMessageChan c >>= 
->                     runAction . stepActor a >>= 
+>                     runAction . stepActor a . f >>= 
 >                      maybeDo loop 
 
 
@@ -369,7 +367,8 @@ Internal function that feeds the actor computation its values.
 > -- | run an Actor computation in the main thread, returning when the Actor
 > -- exits. No exceptions are caught.
 > runActorUsing :: ActorStream i -> Actor i -> IO ()
-> runActorUsing astr f = flip actorRunner f =<< unlockStream astr
+> runActorUsing (ActorStream _ lS f) ac = 
+>     actorRunner ac f =<< takeMVar lS
 
 
 ..and a variation we export, where no Chan is involved:
@@ -386,12 +385,12 @@ IO action it forks handles errors.
 
 > -- USE `bracket` HERE?:
 > forkA :: ActorStream i -> IO () -> IO ()
-> forkA astr = void . forkIO . (>> cleanup) . catchActor  where
+> forkA (ActorStream lM lS _) = void . forkIO . (>> cleanup) . catchActor  where
 >     cleanup = mask_ $ do 
 >          -- should only ever be blocked briefly:
->         c <- takeMVar $ lockedMailbox astr
+>         c <- takeMVar lM
 >          -- (assert both MVars are now empty) --
->         putMVar (lockedStream astr) c  -- unblocks forking actors
+>         putMVar lS c  -- unblocks forking actors
 
 
 No cleanup necessary here, just silence exception:
@@ -430,14 +429,14 @@ Finally, the functions for forking Actors:
 > -- | fork an actor that reads from the supplied 'ActorStream'. This blocks,
 > -- if another Actor is reading from the stream, until that Actor exits.
 > forkActorUsing :: (MonadAction m)=> ActorStream i -> Actor i -> m ()
-> forkActorUsing astr f = liftIOtoA $ do
->     let b = lockedMailbox astr
+> forkActorUsing astr@(ActorStream lM lS f) ac = liftIOtoA $ do
 >     -- block, waiting for other actors to give up control:
->     c <- unlockStream astr
+>     c <- takeMVar lS
+>      -- (assert both MVars are empty) --
 >     -- Fork actor computation, waiting for first input:
->     forkA astr (actorRunner c f) 
+>     forkA astr (actorRunner ac f c) 
 >     -- put the chan into the MVar, unblocking senders (or forkA cleanup):
->     putMVar b c
+>     putMVar lM c
 >
 >
 > -- | fork a looping computation which starts immediately. Equivalent to
@@ -447,11 +446,6 @@ Finally, the functions for forking Actors:
 > forkActor_ = liftIOtoA . forkA_ . runActor_  
 >
 >
-> -- Blocks until we can take the Chan from the actorStream MVar to run an 
-> -- actor on its stream:
-> unlockStream :: ActorStream i -> IO (MessageChan i)
-> unlockStream = takeMVar . lockedStream
->              -- (Then assert both MVars are empty) --
 
 
 
@@ -461,10 +455,12 @@ Finally, the functions for forking Actors:
 > instance Cofunctor Actor where
 >     cofmap f a = Actor (fmap (cofmap f) . stepActor a . f)
 > 
-> {-
+> 
 > instance Functor IOStream where
+>     fmap = undefined
+>
 > instance Functor ActorStream where
-> -}
+>     fmap f' (ActorStream lM lS f) = ActorStream lM lS (f' . f)
 
 > -- HELPER:
 > maybeDo :: (Monad m) => (a -> m ()) -> Maybe a -> m ()
