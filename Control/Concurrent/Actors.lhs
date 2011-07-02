@@ -31,7 +31,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , runActorUsing
 >     , runActor_
 >     -- * Supporting classes
->     , module Data.Cofunctor --necessary?
+>     , module Data.Cofunctor 
 >     ) where
 >
 > import Control.Monad
@@ -52,10 +52,12 @@ These macros are only provided by cabal unfortunately.... makes it difficult to
 work with GHCi:
 
 #if MIN_VERSION_base(4,3,0)
-> import Control.Exception(assert,try,mask_,BlockedIndefinitelyOnMVar)
+> import Control.Exception(assert,try,mask_,BlockedIndefinitelyOnMVar
+>                         ,catches,Handler(..),SomeException)
 > 
 #else
-> import Control.Exception(assert,try,block,BlockedIndefinitelyOnMVar)
+> import Control.Exception(assert,try,block,BlockedIndefinitelyOnMVar
+>                         ,catches,Handler(..),SomeException)
 >
 > mask_ :: IO a -> IO a
 > mask_ = block
@@ -69,20 +71,19 @@ work with GHCi:
 It would  be nice to put this in a CPP conditional block. Does cabal do this
 automatically when running built-in tests?
 
+> dEBUGGING :: Bool
 > dEBUGGING = True
 >
 > -- When dEBUGGING is False at compile time and optimizations are turned on, 
 > -- this should completely disappear
 > assertIO :: IO Bool -> IO ()
-> assertIO io | dEBUGGING = io >>= flip assert (return ())
->             | otherwise = return ()
+> assertIO io = when dEBUGGING $ 
+>     io >>= flip assert (return ())
 
 
 
 TODO
 -----
-    - sendSync should return a Bool indicating success or failure
-        - catch BlockedIndefinitelyOnMVar and return False
     - add assertIOs and test, test, test
 
     - better documentation:
@@ -307,16 +308,25 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 >           c <- readMVar b    -- block until actor processing
 >           writeChan c m 
 >
-> -- | Like 'send' but this blocks until the message is read in the
-> -- corresponding stream
-> sendSync :: (MonadAction m)=> Mailbox a -> a -> m ()
-> sendSync (Mailbox b f) a = liftIOtoA $ do
->     sv <- newEmptyMVar
->     let m = Message (Just sv, f a)
->     c <- readMVar b    -- block until actor processing
->     writeChan c m 
->     void $ takeMVar sv -- block until the actor reads message
->     
+> -- | Like 'send' but this blocks until the message is received in the
+> -- corresponding output stream, e.g. by an 'Actor'. Return 'True' if the
+> -- message was processed or 'False' otherwise, e.g. the receiving Actor 
+> -- exits prematurely.
+> sendSync :: (MonadAction m)=> Mailbox a -> a -> m Bool
+> sendSync (Mailbox b f) a = liftIOtoA $ send' `catches` [Handler blockedHandler]
+>     where send' = do                                           
+>               sv <- newEmptyMVar
+>               c <- readMVar b    -- block until actor is processing stream
+>               writeChan c $ Message (Just sv, f a)
+>               takeMVar sv        -- block until actor reads message
+>               return True
+>
+>           -- Should we restrict this to BlockedIndefinitelyOnMVar?:
+>           blockedHandler :: SomeException -> IO Bool
+>           blockedHandler e = do
+>               when dEBUGGING $ putStrLn $ "sendSync: " ++ show e
+>               return False
+>           
 
 
 We allow sending of messages to Actors in IO, treating the main thread as 
@@ -411,7 +421,8 @@ and exit themselves.
 > catchActor io = try io >>= either blockedOnMvarHandler return
 >     -- raised when runtime finds Actor blocked forever on `send`:
 >     where blockedOnMvarHandler :: BlockedIndefinitelyOnMVar -> IO ()
->           blockedOnMvarHandler = when dEBUGGING . print
+>           blockedOnMvarHandler be = when dEBUGGING $
+>                                      putStrLn $ "catchActor: " ++ show be
 
 
 Finally, the functions for forking Actors:

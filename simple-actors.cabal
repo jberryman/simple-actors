@@ -30,6 +30,7 @@ Description:         simple-actors is a library of concurrency primitives for
                      - blocking on sends to non-existent actor, or forking on in-use 'ActorStream'
                      - catch blocked MVar exceptions. make Actor exit.
                      - Functor / Cofunctor instances for Mailbox/*Stream pairs
+                     - sendSync returns True on success
                      .
 
 -- The license under which the package is released.
