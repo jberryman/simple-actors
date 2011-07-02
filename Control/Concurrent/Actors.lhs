@@ -52,10 +52,13 @@ These macros are only provided by cabal unfortunately.... makes it difficult to
 work with GHCi:
 
 #if MIN_VERSION_base(4,3,0)
+
 > import Control.Exception(assert,try,mask_,BlockedIndefinitelyOnMVar
 >                         ,catches,Handler(..),SomeException)
 > 
+
 #else
+
 > import Control.Exception(assert,try,block,BlockedIndefinitelyOnMVar
 >                         ,catches,Handler(..),SomeException)
 >
@@ -64,27 +67,22 @@ work with GHCi:
 > 
 > void :: (Monad m)=> m a -> m ()
 > void = (>> return ())
+
 #endif
 
 ------
 
-It would  be nice to put this in a CPP conditional block. Does cabal do this
-automatically when running built-in tests?
+It would be nice to put this in a CPP conditional block. Does cabal define a CPP
+variable when tests are run?
 
 > dEBUGGING :: Bool
 > dEBUGGING = True
->
-> -- When dEBUGGING is False at compile time and optimizations are turned on, 
-> -- this should completely disappear
-> assertIO :: IO Bool -> IO ()
-> assertIO io = when dEBUGGING $ 
->     io >>= flip assert (return ())
 
 
 
 TODO
 -----
-    - add assertIOs and test, test, test
+    - testing
 
     - better documentation:
         - show implementation in docs when it reveals something
@@ -92,7 +90,6 @@ TODO
         - explanations when useful
 
     - test performance of send blocking and not blocking
-    - automated tests / assertions (with HUnit?)
     - better exception handling with an eye for helping the GC
 
     - export some useful Actors:
@@ -213,7 +210,7 @@ We "lock" the Chans behind an MVar to enable two things:
             - blocks on 'takeMVar . lockedStream'
             - (assert both MVars are empty)
             - 'putMVar chan . lockedMailbox' (unblocking 'send'ers)
-            - (aser lockedStream MVar empty until Actor exits)
+            - (assert lockedStream MVar empty until Actor exits)
 
         send:
             - blocks on 'takeMVar . mailbox'
@@ -398,7 +395,10 @@ IO action it forks handles errors.
 >     cleanup = mask_ $ do 
 >          -- should only ever be blocked briefly:
 >         c <- takeMVar lM
->          -- (assert both MVars are now empty) --
+>         --- TESTING --- 
+>         assertMA $ 
+>             (&&) <$> isEmptyMVar lM <*> isEmptyMVar lS
+>         --- TESTING --- 
 >         putMVar lS c  -- unblocks forking actors
 
 
@@ -431,7 +431,15 @@ Finally, the functions for forking Actors:
 > forkActor :: (MonadAction m)=> Actor i -> m (Mailbox i)
 > forkActor a = do
 >     (b,str) <- newChanPair
->    -- (assert 'str' full, 'b' empty) --
+>     --- TESTING ---
+>     assertMA $ 
+>         case (b,str) of
+>              ((Mailbox mv _),(ActorStream mv' sv _)) -> liftIOtoA $ 
+>                      and <$> sequence [ 
+>                             isEmptyMVar mv
+>                           , isEmptyMVar mv'
+>                           , not <$> isEmptyMVar sv ]
+>     --- TESTING ---
 >     forkActorUsing str a
 >     return b
 >
@@ -442,7 +450,11 @@ Finally, the functions for forking Actors:
 > forkActorUsing astr@(ActorStream lM lS f) ac = liftIOtoA $ do
 >     -- block, waiting for other actors to give up control:
 >     c <- takeMVar lS
->      -- (assert both MVars are empty) --
+>     --- TESTING ---
+>     assertMA $
+>         and <$> sequence [ isEmptyMVar lM
+>                          , isEmptyMVar lS ]
+>     --- TESTING ---
 >     -- Fork actor computation, waiting for first input:
 >     forkA astr (actorRunner ac f c) 
 >     -- put the chan into the MVar, unblocking senders (or forkA cleanup):
@@ -477,3 +489,11 @@ Finally, the functions for forking Actors:
 > maybeDo = maybe (return ())
 
 
+TESTING
+=======
+
+> -- When dEBUGGING is False at compile time and optimizations are turned on, 
+> -- this should completely disappear
+> assertMA :: (MonadAction m)=> m Bool -> m ()
+> assertMA a = when dEBUGGING $ 
+>     a >>= liftIOtoA . flip assert (return ())
