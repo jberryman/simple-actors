@@ -96,7 +96,7 @@ TODO
         - 'loop' which keeps consuming
         - function returning an actor to "load balance" inputs over multiple
           actors
-
+    - create an internal module allowing wrapping IO in Actor
 
 
 

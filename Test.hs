@@ -3,20 +3,40 @@ module Main
 
 import Control.Concurrent.Actors
 
-main = spawnWriters 100
+main = 
+    main2
 
 ------------------------
+main2 = do
+    (b,str) <- newChanPair
+    forkActor_ $ simpleFork_ b
+    -- WORKS:
+    receive str >>= print
+
+    -- BROKEN:
+    receiveList str >>=
+        mapM_ print . take 100
+
+simpleFork_ :: Mailbox Int -> Actor_
+simpleFork_ b = Actor $ \_-> do
+    mapM (send b) [1..10]
+    done
+
+------------------------
+-- BROKEN:
+
+main1 = spawnWriters 100
+
 spawnWriters n = do
-    outBox <- newMailbox
+    (mb,ioStr) <- newChanPair
     -- fork n actors. Each will write its number to the mailbox 'out'
-    mapM_ (forkLoop . printerActor outBox) [1..n]
-    -- fork n actors that will supply streams of () to the printerActors
+    mapM_ (forkActor_ . printerActor mb) [1..n]
 
-    out <- receiveList outBox
-    putStrLn $ unwords $ map show $ take (n*10) out
+    receiveList ioStr >>=
+        putStrLn . unwords . map show . take (n*10) 
 
-printerActor :: Mailbox Int -> Int -> Loop
-printerActor b n = do
+printerActor :: Mailbox Int -> Int -> Actor_
+printerActor b n = Actor $ \_ -> do
     send b n
     continue_ $ printerActor b n
     
