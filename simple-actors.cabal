@@ -67,11 +67,11 @@ Cabal-version:       >=1.2
 Library
   -- Modules exported by the library.
   Exposed-modules:     Control.Concurrent.Actors
-                     , Data.Cofunctor
   
   -- Packages needed in order to build this package.
   Build-depends:      transformers
                     , base >= 4 && < 5    
+                    , chan-split
   
   ghc-options:        -Wall
 
