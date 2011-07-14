@@ -55,7 +55,7 @@ work with GHCi:
 
 #if MIN_VERSION_base(4,3,0)
 
-> import Control.Exception(assert,try,mask_,BlockedIndefinitelyOnMVar
+> import Control.Exception(assert,try,BlockedIndefinitelyOnMVar
 >                         ,catches,Handler(..),SomeException,bracket,bracket_)
 > 
 
@@ -191,6 +191,7 @@ functionality of the library more explicit.
 > unblockSenders = flip putMVar () . getSLock . senderLock
 > blockSenders = takeMVar . getSLock . senderLock 
 >
+> closeStream, openStream :: ActorStream o -> IO ()
 >  -- TODO: use FINALLY HERE?
 > closeStream str = blockSenders str >> giveUpStream str
 > openStream str = acquireStream str >> unblockSenders str
@@ -272,28 +273,13 @@ means the lock wasn't returned. Explore how we should react in that case.
     --------------------
 
         newChanPair:
-            - create one newEmptyMVar for both 'lockedMailbox' and 'mailbox'
-            - create one newMVar from a newChan, for 'lockedStream'
-
-                         ActorStream
-                     --------    =======
-                    |  chan  |  |       |
-                     --------    =======
-                                 Mailbox
+            ...
         forkActorOn:
-            - blocks on 'takeMVar . lockedStream'
-            - (assert both MVars are empty)
-            - 'putMVar chan . lockedMailbox' (unblocking 'send'ers)
-            - (assert lockedStream MVar empty until Actor exits)
-
+            ...
         send:
-            - blocks on 'takeMVar . mailbox'
-
+            ...
         done (or exception handled):
-            - (assert lockedStream empty (lockedMailbox may not be empty if the
-                exception was immediate))
-            - 'takeMVar . lockedMailbox' 
-            - 'putMVar chan . lockedStream' (unblocking 'forkActorsOn's)
+            ...
 
         
 
@@ -304,6 +290,7 @@ passing between Actors:
 >                   deriving Functor
 > newtype SyncToken = ST { syncToken :: MVar () }
 >
+> sync, awaitSync :: SyncToken -> IO ()
 > sync = takeMVar . syncToken
 > awaitSync = takeMVar . syncToken
 >
@@ -381,7 +368,8 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 > -- If the runtime determines that a new Actor will never take over, an
 > -- exception will be raised.
 > send :: (MonadAction m)=> Mailbox a -> a -> m ()
-> send (Mailbox c slm) = liftIOtoA . sendLockDo slm . writeChan c . wrapMessage
+> send b = liftIOtoA . putMessage b . wrapMessage
+> --send b = liftIOtoA . sendLockDo (senderLockMutex b) . writeChan (inChan b) . wrapMessage
 >
 >
 > -- | Like 'send' but this blocks until the message is received in the
@@ -389,12 +377,13 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 > -- message was processed or 'False' otherwise, e.g. the receiving Actor 
 > -- exits prematurely.
 > sendSync :: (MonadAction m)=> Mailbox a -> a -> m Bool
-> sendSync (Mailbox c slm) a = liftIOtoA $ send' `catches` [Handler blockedHandler]
+> sendSync b a = liftIOtoA $ send' `catches` [Handler blockedHandler]
 >     where send' = do                                           
 >               st <- ST <$> newEmptyMVar
 >               let m = Message (Just st, a)
 >               -- block until actor is processing stream and it's our turn
->               sendLockDo slm $ writeChan c m
+>               --sendLockDo (senderLockMutex b) $ writeChan (inChan b) m
+>               putMessage b m
 >                -- block until actor reads message
 >               awaitSync st        
 >               return True
@@ -407,16 +396,19 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 >               return False
 >           
 >
-> sendLockDo :: Maybe SenderLockMutex -> IO a -> IO a
-> sendLockDo Nothing io = io
->  -- TODO: HANDLE THE EXCEPTION THAT WILL BE RE-RAISED HERE.
->  -- BlockedIndefinitelyOnMVar will be raised in waitSenderLock if this chan is
->  -- dead because no actors will ever work on it.
-> sendLockDo (Just slm) io = bracket   
->                              (takeSenderLock slm) 
->                              (putSenderLock slm) 
->                              (\sl-> waitSenderLock sl >> io)
->
+> putMessage :: Mailbox a -> Message a -> IO ()
+> putMessage b m = 
+>     let doPut = writeChan (inChan b) m
+>      in case senderLockMutex b of
+>              Nothing -> doPut
+>               -- TODO: HANDLE THE EXCEPTION THAT WILL BE RE-RAISED HERE.
+>               -- BlockedIndefinitelyOnMVar will be raised in waitSenderLock if this chan is
+>               -- dead because no actors will ever work on it.
+>              (Just slm) ->  
+>                    bracket                           
+>                      (takeSenderLock slm)            
+>                      (putSenderLock slm)             
+>                      (\sl-> waitSenderLock sl >> doPut) 
 
 
 We allow sending of messages to Actors in IO, treating the main thread as 
