@@ -3,6 +3,7 @@
 This module exports a simple, idiomatic implementation of the Actor Model.
 
 > module Control.Concurrent.Actors (
+>
 >     -- * Actor computations
 >       Actor(..)
 >     , Action()
@@ -11,6 +12,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , continue_
 >     , continue
 >     , done
+>
 >     -- * Message passing and IO
 >     , send
 >     , sendSync
@@ -21,7 +23,8 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , IOStream
 >     -- ** Actor system output
 >     , receive
->     , receiveList
+>  -- , receiveList
+>
 >     -- * Running Actors
 >     , forkActor
 >     , forkActorUsing
@@ -29,8 +32,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     -- ** Running Actor computations in current IO thread
 >     , runActorUsing
 >     , runActor_
+>
 >     -- * Supporting classes
 >     , module Data.Cofunctor 
+>
 >     ) where
 >
 > import Control.Monad
@@ -85,6 +90,13 @@ TODO
 -----
     - figure out locking/sharing behavior of receiveList/receive and other IO
       functions
+        - We have a dilemma when trying to use syncing messages to a stream
+          interface in IO:
+              * Have a new type for a "Mailbox" with a corresponding IOStream
+                that does not allow synchronous messages
+              * Abondon stream interface to IO (even focus on ITeratee
+                integration)
+              * make sendSync actually only block until receiveList is called
     - switch exception handling to use bracket and variants
     - testing
 
@@ -101,8 +113,6 @@ TODO
         - function returning an actor to "load balance" inputs over multiple
           actors
     - create an internal module allowing wrapping IO in Actor
-        - use liftIO to do that
-
 
 
 
@@ -118,12 +128,14 @@ the user to enforce these restrictions.
 > runAction :: Action a -> IO (Maybe a)
 > runAction = runMaybeT . action
 
+
 First we define an Actor: a function that takes an input, maybe returning a new
 actor:
 
 > newtype Actor i = Actor { stepActor :: i -> Action (Actor i) }
 
-Now some functions for making building Actor computations perhaps more readable:
+
+These might make building actor computations more readable:
 
 > -- | Continue with a new Actor computation step
 > -- 
@@ -179,24 +191,6 @@ functionality of the library more explicit.
 >                          , forkLock :: ForkLock
 >                          }
 >
->
-> unblockSenders, blockSenders, acquireStream, giveUpStream :: ActorStream o -> IO ()
->  -- TODO: IF THIS RAISES BlockedIndefinitelyOnMVar THEN A PREVIOUS CLEANUP
->  -- AFTER A FORK FAILED. WE SHOULD LOG THIS, AND THEN ASSUME CONTROL OF THE
->  -- STREAM (TEST IF THIS REASONING IS RIGHT)
-> acquireStream = takeMVar . getFLock . forkLock
->  -- TODO: BlockedIndefinitelyOnMVar HERE ALSO MEANS SOMETHING WENT WRONG. LOG
->  -- when dEBUGGING 
-> giveUpStream = flip putMVar () . getFLock . forkLock
-
->  -- TODO: BlockedIndefinitelyOnMVar in these SHOULD BE LOGGED:
-> unblockSenders = flip putMVar () . getSLock . senderLock
-> blockSenders = takeMVar . getSLock . senderLock 
->
-> closeStream, openStream :: ActorStream o -> IO ()
->  -- TODO: use FINALLY HERE?
-> closeStream str = blockSenders str >> giveUpStream str
-> openStream str = acquireStream str >> unblockSenders str
 
     NOTE: we don't use a locking mechanism for IOStream for now, but may 
      put some kind of signalling mechanism in later. This would probably 
@@ -219,6 +213,29 @@ We use a system of locks to enforce these properties of the environment:
     NOTE: currently 'send's to a Mailbox with a corresponding IOStream will
           never block. We should use an internal class to allow us to ditch the
           MVar wrapping for sends to IOStream.
+
+
+ActorStream LOCK HELPERS:
+-------------------------
+
+> unblockSenders, blockSenders, acquireStream, giveUpStream :: ActorStream o -> IO ()
+>  -- TODO: IF THIS RAISES BlockedIndefinitelyOnMVar THEN A PREVIOUS CLEANUP
+>  -- AFTER A FORK FAILED. WE SHOULD LOG THIS, AND THEN ASSUME CONTROL OF THE
+>  -- STREAM (TEST IF THIS REASONING IS RIGHT)
+> acquireStream = takeMVar . getFLock . forkLock
+>  -- TODO: BlockedIndefinitelyOnMVar HERE ALSO MEANS SOMETHING WENT WRONG. LOG
+>  -- when dEBUGGING 
+> giveUpStream = flip putMVar () . getFLock . forkLock
+
+>  -- TODO: BlockedIndefinitelyOnMVar in these SHOULD BE LOGGED:
+> unblockSenders = flip putMVar () . getSLock . senderLock
+> blockSenders = takeMVar . getSLock . senderLock 
+>
+> closeStream, openStream :: ActorStream o -> IO ()
+>  -- TODO: use FINALLY HERE?
+> closeStream str = blockSenders str >> giveUpStream str
+> openStream str = acquireStream str >> unblockSenders str
+
 
 SEND LOCKS
 -----------
@@ -420,14 +437,24 @@ an Actor with the special privilege to read arbitrarily from an IOStream.
 > receive :: IOStream o -> IO o
 > receive s = readChan (ioStream s) >>= recv
 
+
+
+> -- TODO: TO FIX THIS WE NEED TO MAKE THIS LOOK LIKE:
+> --     receiveList :: IOStream o -> [Message o]
+> -- and then provide a function:
+> --     readMessage :: Message o -> m o
+> -- or we need to use unsafeInterleaveIO??? 
+> -- A stream interface is not horribly useful if we can't use pure functions
+> -- over it...
+> {-
 > -- | Return a lazy list of 'IOStream' contents
 > receiveList :: IOStream o -> IO [o]
 > receiveList s = getChanContents (ioStream s) >>= mapM recv
+> -}
 
 > --HELPER:
 > recv :: Message b -> IO b
 > recv (Message(st,o)) = maybeDo sync st >> return o
-
 
 
 Internal function that feeds the actor computation its values.
