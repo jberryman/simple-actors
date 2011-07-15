@@ -23,7 +23,6 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , receive
 >     , receiveList
 >     -- * Running Actors
->     , MonadAction()
 >     , forkActor
 >     , forkActorUsing
 >     , forkActor_
@@ -84,7 +83,6 @@ variable when tests are run?
 
 TODO
 -----
-    - MonadAction is wholly unnecessary, use MonadIO
     - figure out locking/sharing behavior of receiveList/receive and other IO
       functions
     - switch exception handling to use bracket and variants
@@ -326,10 +324,10 @@ passing between Actors:
 >     -- | Create a new pair of input and output chans: a 'Mailbox' where
 >     -- messages can be sent, and an output stream type (currently either an 
 >     -- 'IOStream' or 'ActorStream')
->     newChanPair :: (MonadAction m)=> m (Mailbox a, s a)
+>     newChanPair :: (MonadIO m)=> m (Mailbox a, s a)
 >
 > instance Stream ActorStream where
->     newChanPair = liftIOtoA $ do
+>     newChanPair = liftIO $ do
 >         (inC,outC) <- newSplitChan
 >         fLock <- FL <$> newEmptyMVar
 >         sLock <- SL <$> newEmptyMVar
@@ -342,7 +340,7 @@ available immediately to senders, so senders don't block waiting for a reader in
 IO, as they do with an ActorStream (see below):
 
 > instance Stream IOStream where
->     newChanPair = liftIOtoA $ do
+>     newChanPair = liftIO $ do
 >         (inC,outC) <- newSplitChan
 >         return (Mailbox inC Nothing, IOStream outC)
 >
@@ -371,16 +369,16 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 > -- . 
 > -- If the runtime determines that a new Actor will never take over, an
 > -- exception will be raised.
-> send :: (MonadAction m)=> Mailbox a -> a -> m ()
-> send b = liftIOtoA . putMessage b . wrapMessage
+> send :: (MonadIO m)=> Mailbox a -> a -> m ()
+> send b = liftIO . putMessage b . wrapMessage
 >
 >
 > -- | Like 'send' but this blocks until the message is received in the
 > -- corresponding output stream, e.g. by an 'Actor'. Return 'True' if the
 > -- message was processed or 'False' otherwise, e.g. the receiving Actor 
 > -- exits prematurely.
-> sendSync :: (MonadAction m)=> Mailbox a -> a -> m Bool
-> sendSync b a = liftIOtoA $ send' `catches` [Handler blockedHandler]
+> sendSync :: (MonadIO m)=> Mailbox a -> a -> m Bool
+> sendSync b a = liftIO $ send' `catches` [Handler blockedHandler]
 >     where send' = do                                           
 >               st <- ST <$> newEmptyMVar
 >               let m = Message (Just st, a)
@@ -430,25 +428,6 @@ an Actor with the special privilege to read arbitrarily from an IOStream.
 > recv :: Message b -> IO b
 > recv (Message(st,o)) = maybeDo sync st >> return o
 
-
-The MonadAction class represents environments in which we can operate on actors. 
-That is we would like to be able to send a message in IO and Action. 
-
-We could use MonadIO here instead but we want to limit this... maybe that is 
-a mistake... We only really care about what can happen in Actor; those functions
-have explicit type signatures. For functions that are allowed to happen in IO,
-well they should also be able to happen in MonadIO, right?
-
-> -- | monads in the MonadAction class can participate in message passing and other
-> -- Actor operations. 
-> class Monad m => MonadAction m where
->     liftIOtoA :: IO a -> m a
->
-> instance MonadAction IO where
->     liftIOtoA = id
->
-> instance MonadAction Action where
->     liftIOtoA = Action . liftIO
 
 
 Internal function that feeds the actor computation its values.
@@ -502,7 +481,7 @@ and exit themselves.
 Finally, the functions for forking Actors:
 
 > -- | fork an actor, returning its input 'Mailbox'
-> forkActor :: (MonadAction m)=> Actor i -> m (Mailbox i)
+> forkActor :: (MonadIO m)=> Actor i -> m (Mailbox i)
 > forkActor a = do
 >     (b,str) <- newChanPair
 >     forkActorUsing str a
@@ -521,17 +500,10 @@ FORKING PROCEDURE:
 
 > -- | fork an actor that reads from the supplied 'ActorStream'. This blocks,
 > -- if another Actor is reading from the stream, until that Actor exits.
-> forkActorUsing :: (MonadAction m)=> ActorStream i -> Actor i -> m ()
-> forkActorUsing str ac = liftIOtoA $ void $ do
+> forkActorUsing :: (MonadIO m)=> ActorStream i -> Actor i -> m ()
+> forkActorUsing str ac = liftIO $ void $ do
 >     -- blocks, waiting for other actors to give up control:
 >     acquireStream str
->     {-
->     --- TESTING -----------------------------------
->     assertMA $
->         and <$> sequence [ isEmptyMVar lM
->                          , isEmptyMVar lS ]
->     --- TESTING -----------------------------------
->     -}
 >     -- Fork actor computation, waiting for first input:
 >       -- TODO: HANDLE THE EXCEPTION THAT WILL BE RE-RAISED HERE:
 >     forkIO $ bracket_ 
@@ -544,8 +516,8 @@ FORKING PROCEDURE:
 > -- | fork a looping computation which starts immediately. Equivalent to
 > -- launching an 'Actor_' and another 'Actor' that sends an infinite stream of
 > -- ()s
-> forkActor_ :: (MonadAction m)=> Actor_ -> m ()
-> forkActor_ = liftIOtoA . void . forkIO . runActor_  
+> forkActor_ :: (MonadIO m)=> Actor_ -> m ()
+> forkActor_ = liftIO . void . forkIO . runActor_  
 
 
 
@@ -573,6 +545,6 @@ TESTING
 
 > -- When dEBUGGING is False at compile time and optimizations are turned on, 
 > -- this should completely disappear
-> assertMA :: (MonadAction m)=> m Bool -> m ()
-> assertMA a = when dEBUGGING $ 
->     a >>= liftIOtoA . flip assert (return ())
+> assertIO :: (MonadIO m)=> m Bool -> m ()
+> assertIO a = when dEBUGGING $ 
+>     a >>= liftIO . flip assert (return ())
