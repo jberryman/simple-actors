@@ -84,6 +84,9 @@ variable when tests are run?
 
 TODO
 -----
+    - MonadAction is wholly unnecessary, use MonadIO
+    - figure out locking/sharing behavior of receiveList/receive and other IO
+      functions
     - switch exception handling to use bracket and variants
     - testing
 
@@ -100,6 +103,7 @@ TODO
         - function returning an actor to "load balance" inputs over multiple
           actors
     - create an internal module allowing wrapping IO in Actor
+        - use liftIO to do that
 
 
 
@@ -272,7 +276,7 @@ means the lock wasn't returned. Explore how we should react in that case.
     HOW WE USE THE LOCKS
     --------------------
 
-        newChanPair:
+        newChanPair (ActorStream):
             ...
         forkActorOn:
             ...
@@ -369,7 +373,6 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 > -- exception will be raised.
 > send :: (MonadAction m)=> Mailbox a -> a -> m ()
 > send b = liftIOtoA . putMessage b . wrapMessage
-> --send b = liftIOtoA . sendLockDo (senderLockMutex b) . writeChan (inChan b) . wrapMessage
 >
 >
 > -- | Like 'send' but this blocks until the message is received in the
@@ -382,7 +385,6 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 >               st <- ST <$> newEmptyMVar
 >               let m = Message (Just st, a)
 >               -- block until actor is processing stream and it's our turn
->               --sendLockDo (senderLockMutex b) $ writeChan (inChan b) m
 >               putMessage b m
 >                -- block until actor reads message
 >               awaitSync st        
@@ -415,7 +417,7 @@ We allow sending of messages to Actors in IO, treating the main thread as
 an Actor with the special privilege to read arbitrarily from an IOStream.
 
 > -- | Read a message from an 'IOStream' in the IO monad. This can be used to
-> -- get output from an Actor system. This blocks until their is something to
+> -- get output from an Actor system. This blocks until there is something to
 > -- return
 > receive :: IOStream o -> IO o
 > receive s = readChan (ioStream s) >>= recv
@@ -430,7 +432,12 @@ an Actor with the special privilege to read arbitrarily from an IOStream.
 
 
 The MonadAction class represents environments in which we can operate on actors. 
-That is we would like to be able to send a message in IO and Action.
+That is we would like to be able to send a message in IO and Action. 
+
+We could use MonadIO here instead but we want to limit this... maybe that is 
+a mistake... We only really care about what can happen in Actor; those functions
+have explicit type signatures. For functions that are allowed to happen in IO,
+well they should also be able to happen in MonadIO, right?
 
 > -- | monads in the MonadAction class can participate in message passing and other
 > -- Actor operations. 
