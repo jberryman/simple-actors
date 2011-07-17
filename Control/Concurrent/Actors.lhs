@@ -1,4 +1,4 @@
-> {-# LANGUAGE CPP, GeneralizedNewtypeDeriving, ViewPatterns, DeriveFunctor #-}
+> {-# LANGUAGE CPP, GeneralizedNewtypeDeriving, ViewPatterns #-}
 
 This module exports a simple, idiomatic implementation of the Actor Model.
 
@@ -16,14 +16,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     -- * Message passing and IO
 >     , send
 >     , sendSync
->     -- ** Mailbox / Stream pairs
->     , Stream(newChanPair)
+>     -- ** Mailbox / ActorStream pair
+>     , newChanPair
 >     , Mailbox
 >     , ActorStream
->     , IOStream
->     -- ** Actor system output
->     , receive
->  -- , receiveList
 >
 >     -- * Running Actors
 >     , forkActor
@@ -47,6 +43,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >
 > -- from the chan-split package
 > import Control.Concurrent.Chan.Split
+> import Control.Concurrent.Chan.Class
 > import Data.Cofunctor
 
 
@@ -90,13 +87,7 @@ TODO
 -----
     - figure out locking/sharing behavior of receiveList/receive and other IO
       functions
-        + We have a dilemma when trying to use syncing messages to a stream
-          interface in IO:
-              * Have a new type for a "Mailbox" with a corresponding IOStream
-                that does not allow synchronous messages
-              * Abondon stream interface to IO (even focus on ITeratee
-                integration)
-              * make sendSync actually only block until receiveList is called
+        - answer: ditch IOStream, make 'send' polymorphic
     - switch exception handling to use bracket and variants
     - testing
 
@@ -120,7 +111,10 @@ Here we define the Actor environment, similar to IO, in which we can launch new
 Actors and send messages to Actors in scope. The implementation is hidden from
 the user to enforce these restrictions.
 
-> -- | The Actor encironment in which Actors can be spawned and sent messages
+> -- | The Actor environment in which Actors can be spawned and sent messages.
+> -- .
+> -- The ability to use 'liftIO' here is an abstraction leak, but is convenient
+> -- e.g. to allow Actors to make use of randomness. 
 > newtype Action a = Action { action :: MaybeT IO a }
 >                  deriving (Monad, Functor, Applicative, 
 >                            Alternative, MonadPlus, MonadIO)
@@ -177,10 +171,10 @@ functionality of the library more explicit.
 
 > -- | The input portion of our buffered message-passing medium. Actors can 
 > -- send messages to a Mailbox, where they will supply a corresponding
-> -- 'ActorStream' or 'IOStream'
+> -- 'ActorStream'
 > data Mailbox i = Mailbox { 
 >                      inChan :: InChan (Message i)
->                    , senderLockMutex :: Maybe SenderLockMutex 
+>                    , senderLockMutex :: SenderLockMutex 
 >                    }
 >
 > -- | A stream of messages, received via a corresponding 'Mailbox', which can
@@ -192,15 +186,6 @@ functionality of the library more explicit.
 >                          }
 >
 
-    NOTE: we don't use a locking mechanism for IOStream for now, but may 
-     put some kind of signalling mechanism in later. This would probably 
-     have to use STM to be useful and avoid race conditions.
-
-
-> -- | A stream of messages, received via a corresponding 'Mailbox', which can
-> -- be freely read from only in the IO Monad.
-> newtype IOStream o = IOStream { ioStream :: OutChan (Message o) 
->                               } deriving Functor
 
 
 We use a system of locks to enforce these properties of the environment:
@@ -209,10 +194,6 @@ We use a system of locks to enforce these properties of the environment:
 
     2) Attempting to fork on an ActorStream will block until no other Actor
         is processing the stream
-
-    NOTE: currently 'send's to a Mailbox with a corresponding IOStream will
-          never block. We should use an internal class to allow us to ditch the
-          MVar wrapping for sends to IOStream.
 
 
 ActorStream LOCK HELPERS:
@@ -244,16 +225,16 @@ All the senders who want to send block on this mutex:
 
 > newtype SenderLockMutex = SLM { getMutex :: MVar SenderLock }
 >
-> takeSenderLock :: SenderLockMutex -> IO SenderLock
+> takeSenderLock :: Mailbox i -> IO SenderLock
 >  -- TODO: BlockedIndefinitelyOnMVar HERE MEANS: the SenderLock was never
 >  -- returned and we lost the game. Re-raise a more meaningful exception
-> takeSenderLock = takeMVar . getMutex
+> takeSenderLock = takeMVar . getMutex . senderLockMutex
 >
-> putSenderLock :: SenderLockMutex -> SenderLock -> IO ()
+> putSenderLock :: Mailbox i -> SenderLock -> IO ()
 >  -- TODO: BlockedIndefinitelyOnMVar HERE MEANS: the (some?) SenderLock was
 >  -- 'put' or never taken or aliens. We lost the game and should re-raise a
 >  -- humbling appology
-> putSenderLock = putMVar . getMutex
+> putSenderLock = putMVar . getMutex . senderLockMutex
 
 They then must readMVar here before writing to the Chan. This inner MVar is
 copied in the corresponding ActorStream:
@@ -313,10 +294,6 @@ passing between Actors:
 > sync = takeMVar . syncToken
 > awaitSync = takeMVar . syncToken
 >
-> readMessageChan :: OutChan (Message o) -> IO o
-> readMessageChan c = readChan c >>= 
->                      (\(s,i)-> i <$ maybeDo sync s) . message
->
 > wrapMessage :: i -> Message i
 > wrapMessage = Message . (,) Nothing
 
@@ -335,32 +312,18 @@ passing between Actors:
             - before acting on message, write a () to MVar
 
 
-> -- | The class of Streams for output with a corresponding 'Mailbox'
-> class Stream s where
+> -- | Create a new pair of input and output chans: a 'Mailbox' where
+> -- messages can be sent, and an 'ActorStream' which can supply an Actor with
+> -- input messages, sent to the corresponding Mailbox.
+> newChanPair :: (MonadIO m)=> m (Mailbox a, ActorStream a)
+> newChanPair = liftIO $ do
+>     (inC,outC) <- newSplitChan
+>     fLock <- FL <$> newEmptyMVar
+>     sLock <- SL <$> newEmptyMVar
+>     sMutex <- SLM <$> newMVar sLock
 >
->     -- | Create a new pair of input and output chans: a 'Mailbox' where
->     -- messages can be sent, and an output stream type (currently either an 
->     -- 'IOStream' or 'ActorStream')
->     newChanPair :: (MonadIO m)=> m (Mailbox a, s a)
->
-> instance Stream ActorStream where
->     newChanPair = liftIO $ do
->         (inC,outC) <- newSplitChan
->         fLock <- FL <$> newEmptyMVar
->         sLock <- SL <$> newEmptyMVar
->         sMutex <- SLM <$> newMVar sLock
->         return (Mailbox inC (Just sMutex), ActorStream outC sLock fLock)
->
+>     return (Mailbox inC sMutex, ActorStream outC sLock fLock)
 
-for now, when we make an IOStream / Mailbox pair, the internal Chan is made
-available immediately to senders, so senders don't block waiting for a reader in
-IO, as they do with an ActorStream (see below):
-
-> instance Stream IOStream where
->     newChanPair = liftIO $ do
->         (inC,outC) <- newSplitChan
->         return (Mailbox inC Nothing, IOStream outC)
->
 
 
 A channel of communication should never have senders without a receiver. To
@@ -378,17 +341,28 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 
 
 
-> -- | Send a message to an Actor asynchronously. This does not wait for the
-> -- Actor to receive the message before returning. 
-> -- . 
-> -- However if we are sending to a Mailbox with a corresponding ActorStream, 
-> -- this will block while no Actor is processing the stream. 
-> -- . 
+> -- | Send a message asynchronously. This can be used to send messages to other
+> -- Actors via a 'Mailbox', or used as a means of output from the Actor system.
+> -- .
+> -- /Sends to a Mailbox/:
+> -- This does not wait for the Actor to receive the message before returning, 
+> -- but will block while no Actor is processing the corresponding ActorStream;
 > -- If the runtime determines that a new Actor will never take over, an
 > -- exception will be raised.
-> send :: (MonadIO m)=> Mailbox a -> a -> m ()
-> send b = liftIO . putMessage b . wrapMessage
+> -- . 
+> -- > send b = liftIO . writeChan b
+> send :: (MonadIO m, WritableChan c)=> c a -> a -> m ()
+> send b = liftIO . writeChan b
 >
+
+
+> instance WritableChan Mailbox where
+>     writeChan b = putMessage b . wrapMessage
+>
+> instance ReadableChan ActorStream where
+>     readChan str = readChan (outChan str) >>= 
+>                      (\(s,i)-> i <$ maybeDo sync s) . message
+
 >
 > -- | Like 'send' but this blocks until the message is received in the
 > -- corresponding output stream, e.g. by an 'Actor'. Return 'True' if the
@@ -396,6 +370,7 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 > -- exits prematurely.
 > sendSync :: (MonadIO m)=> Mailbox a -> a -> m Bool
 > sendSync b a = liftIO $ send' `catches` [Handler blockedHandler]
+>
 >     where send' = do                                           
 >               st <- ST <$> newEmptyMVar
 >               let m = Message (Just st, a)
@@ -415,60 +390,27 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 >
 > putMessage :: Mailbox a -> Message a -> IO ()
 > putMessage b m = 
->     let doPut = writeChan (inChan b) m
->      in case senderLockMutex b of
->              Nothing -> doPut
->               -- TODO: HANDLE THE EXCEPTION THAT WILL BE RE-RAISED HERE.
->               -- BlockedIndefinitelyOnMVar will be raised in waitSenderLock if this chan is
->               -- dead because no actors will ever work on it.
->              (Just slm) ->  
->                    bracket                           
->                      (takeSenderLock slm)            
->                      (putSenderLock slm)             
->                      (\sl-> waitSenderLock sl >> doPut) 
+>     -- TODO: HANDLE THE EXCEPTION THAT WILL BE RE-RAISED HERE.
+>     -- BlockedIndefinitelyOnMVar will be raised in waitSenderLock if this chan is
+>     -- dead because no actors will ever work on it.
+>          bracket                           
+>            (takeSenderLock b)            
+>            (putSenderLock b)             
+>            (\sl-> waitSenderLock sl >> writeChan (inChan b) m) 
 
 
-We allow sending of messages to Actors in IO, treating the main thread as 
-an Actor with the special privilege to read arbitrarily from an IOStream.
-
-> -- | Read a message from an 'IOStream' in the IO monad. This can be used to
-> -- get output from an Actor system. This blocks until there is something to
-> -- return
-> receive :: IOStream o -> IO o
-> receive s = readChan (ioStream s) >>= recv
-
-
-
-> -- TODO: TO FIX THIS WE NEED TO MAKE THIS LOOK LIKE:
-> --     receiveList :: IOStream o -> [Message o]
-> -- and then provide a function:
-> --     readMessage :: Message o -> m o
-> -- A stream interface is not horribly useful if we can't use pure functions
-> -- over it...
-> -- could provide:
-> --     getMessage :: Message o -> o
-> --     acknowledgeMessage :: Message o -> IO ()
-> {-
-> -- | Return a lazy list of 'IOStream' contents
-> receiveList :: IOStream o -> IO [o]
-> receiveList s = getChanContents (ioStream s) >>= mapM recv
-> -}
-
-> --HELPER:
-> recv :: Message b -> IO b
-> recv (Message(st,o)) = maybeDo sync st >> return o
 
 
 Internal function that feeds the actor computation its values.
 
-> actorRunner :: OutChan (Message i) -> Actor i -> IO ()
-> actorRunner c = loop
->     where loop a = readMessageChan c >>= 
+> actorRunner :: ActorStream i -> Actor i -> IO ()
+> actorRunner str = loop
+>     where loop a = readChan str >>= 
 >                     runAction . stepActor a >>= 
 >                      maybeDo loop 
 
 
-..a simple exported runnner that does not fork, and works in IO:
+...a simple exported runnner that does not fork, and works in IO:
 
 > -- | run an Actor computation in the main thread, returning when the Actor
 > -- exits. Exceptions are not caught:
@@ -478,10 +420,10 @@ Internal function that feeds the actor computation its values.
 >          -- TODO: CATCH SOME EXCEPTIONS HERE!:
 >         (openStream str)
 >         (closeStream str)
->         (actorRunner (outChan str) a)
+>         (actorRunner str a)
 
 
-..and a variation where no Chan is involved:
+...and a variation where no Chan is involved:
 
 > -- | run an Actor_ actor in the main thread, returning when the computation exits
 > runActor_ :: Actor_ -> IO ()
@@ -538,7 +480,7 @@ FORKING PROCEDURE:
 >     forkIO $ bracket_ 
 >                  (unblockSenders str) 
 >                  (closeStream str)
->                  (actorRunner (outChan str) ac)
+>                  (actorRunner str ac)
 
 
 
@@ -556,11 +498,6 @@ FORKING PROCEDURE:
 > instance Cofunctor Actor where
 >     cofmap f a = Actor (fmap (cofmap f) . stepActor a . f)
 > 
-> {- 
-> instance Functor IOStream where
->     fmap f (IOStream c) = IOStream (fmap f c)
-> -}
->
 > instance Functor ActorStream where
 >     fmap f (ActorStream c sl fl) = ActorStream (fmap (fmap f) c) sl fl
 
