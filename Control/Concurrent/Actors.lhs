@@ -90,7 +90,7 @@ TODO
 -----
     - figure out locking/sharing behavior of receiveList/receive and other IO
       functions
-        - We have a dilemma when trying to use syncing messages to a stream
+        + We have a dilemma when trying to use syncing messages to a stream
           interface in IO:
               * Have a new type for a "Mailbox" with a corresponding IOStream
                 that does not allow synchronous messages
@@ -443,9 +443,11 @@ an Actor with the special privilege to read arbitrarily from an IOStream.
 > --     receiveList :: IOStream o -> [Message o]
 > -- and then provide a function:
 > --     readMessage :: Message o -> m o
-> -- or we need to use unsafeInterleaveIO??? 
 > -- A stream interface is not horribly useful if we can't use pure functions
 > -- over it...
+> -- could provide:
+> --     getMessage :: Message o -> o
+> --     acknowledgeMessage :: Message o -> IO ()
 > {-
 > -- | Return a lazy list of 'IOStream' contents
 > receiveList :: IOStream o -> IO [o]
