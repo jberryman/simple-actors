@@ -190,21 +190,15 @@ ActorStream LOCK HELPERS:
 TODO: Simply add 'loggingExceptions' here:
 
 > unblockSenders, blockSenders, acquireStream, giveUpStream :: ActorStream o -> IO ()
->  -- TODO: IF THIS RAISES BlockedIndefinitelyOnMVar THEN A PREVIOUS CLEANUP
->  -- AFTER A FORK FAILED. WE SHOULD LOG THIS AND RE-RAISE:
-> acquireStream = takeMVar . getFLock . forkLock
->  -- TODO: BlockedIndefinitelyOnMVar HERE ALSO MEANS SOMETHING WENT WRONG. LOG
->  -- when dEBUGGING 
-> giveUpStream = flip putMVar () . getFLock . forkLock
-
->  -- TODO: BlockedIndefinitelyOnMVar in these SHOULD BE LOGGED:
-> unblockSenders = flip putMVar () . getSLock . senderLock
-> blockSenders = takeMVar . getSLock . senderLock 
+>  -- BlockedIndefinitelyOnMVar HERE MEANS A PREVIOUS CLEANUP AFTER A FORK FAILED. 
+> acquireStream = (`loggingException` "acquireStream") . takeMVar . getFLock . forkLock
+> giveUpStream = (`loggingException` "giveUpStream") . flip putMVar () . getFLock . forkLock
+> unblockSenders = (`loggingException` "unblockSenders") . flip putMVar () . getSLock . senderLock
+> blockSenders = (`loggingException` "blockSenders") . takeMVar . getSLock . senderLock 
 >
 > closeStream, openStream :: ActorStream o -> IO ()
->  -- TODO: use FINALLY HERE?
-> closeStream str = blockSenders str >> giveUpStream str
-> openStream str = acquireStream str >> unblockSenders str
+> closeStream str = (blockSenders str >> giveUpStream str) `loggingException` "closeStream"
+> openStream str = (acquireStream str >> unblockSenders str) `loggingException` "openStream"
 
 
 SEND LOCKS
@@ -478,15 +472,19 @@ FORKING PROCEDURE:
 TESTING
 =======
 
+> {-
 > -- When dEBUGGING is False at compile time and optimizations are turned on, 
 > -- this should completely disappear
 > assertIO :: (MonadIO m)=> m Bool -> m ()
 > assertIO a = when dEBUGGING $ 
 >     a >>= liftIO . flip assert (return ())
+> -}
 >
 > -- rethrow exceptions, logging to stdout if dEBUGGING
 > loggingException :: IO a -> String -> IO a
-> loggingException io s = Control.Exception.catch io handler
->     where handler :: SomeException -> IO a
->           handler e = do when dEBUGGING $ putStrLn $ ((s++": ")++) $ show e
->                          throwIO e
+> loggingException io s 
+>     | dEBUGGING = Control.Exception.catch io handler
+>     | otherwise = io
+>             where handler :: SomeException -> IO a
+>                   handler e = do when dEBUGGING $ putStrLn $ ((s++": ")++) $ show e
+>                                  throwIO e
