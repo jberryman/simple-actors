@@ -85,9 +85,10 @@ variable when tests are run?
 
 TODO
 -----
-    - figure out locking/sharing behavior of receiveList/receive and other IO
-      functions
-        - answer: ditch IOStream, make 'send' polymorphic
+    - look at using 'withMVar' rather than locks/unlocks
+    - look at BlockedIndefinitely behavior in light of new knowledge and remove
+      handlers for that exception.
+        - check ouut what will  happen with MVar in mutex in Mailbox
     - switch exception handling to use bracket and variants
     - testing
 

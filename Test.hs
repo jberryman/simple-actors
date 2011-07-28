@@ -3,6 +3,7 @@ module Main
 
 import Control.Concurrent.Actors
 import Control.Concurrent.Chan
+import Data.Cofunctor
 
 main = do
     main1
@@ -38,5 +39,11 @@ printerActor b n = Actor $ \_ -> do
     continue_ $ printerActor b n
 ------------------------
 
+-- A kind of "living binary tree"
+
 main3 = do
-    undefined
+    output <- newChan
+    m <- forkActor $ treeNode
+
+
+treeNode = undefined
