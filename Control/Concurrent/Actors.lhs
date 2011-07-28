@@ -40,6 +40,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Control.Concurrent.MVar
 > import Control.Concurrent(forkIO)
 > import Control.Applicative
+> import Control.Exception
 >
 > -- from the chan-split package
 > import Control.Concurrent.Chan.Split
@@ -54,23 +55,9 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 These macros are only provided by cabal unfortunately.... makes it difficult to
 work with GHCi:
 
-#if MIN_VERSION_base(4,3,0)
-
-> import Control.Exception(assert,try,BlockedIndefinitelyOnMVar
->                         ,catches,Handler(..),SomeException,bracket,bracket_)
-> 
-
-#else
-
-> import Control.Exception(assert,try,block,BlockedIndefinitelyOnMVar
->                         ,catches,Handler(..),SomeException,bracket,bracket_)
->
-> mask_ :: IO a -> IO a
-> mask_ = block
-> 
+#if !MIN_VERSION_base(4,3,0)
 > void :: (Monad m)=> m a -> m ()
 > void = (>> return ())
-
 #endif
 
 ------
@@ -200,10 +187,11 @@ We use a system of locks to enforce these properties of the environment:
 ActorStream LOCK HELPERS:
 -------------------------
 
+TODO: Simply add 'loggingExceptions' here:
+
 > unblockSenders, blockSenders, acquireStream, giveUpStream :: ActorStream o -> IO ()
 >  -- TODO: IF THIS RAISES BlockedIndefinitelyOnMVar THEN A PREVIOUS CLEANUP
->  -- AFTER A FORK FAILED. WE SHOULD LOG THIS, AND THEN ASSUME CONTROL OF THE
->  -- STREAM (TEST IF THIS REASONING IS RIGHT)
+>  -- AFTER A FORK FAILED. WE SHOULD LOG THIS AND RE-RAISE:
 > acquireStream = takeMVar . getFLock . forkLock
 >  -- TODO: BlockedIndefinitelyOnMVar HERE ALSO MEANS SOMETHING WENT WRONG. LOG
 >  -- when dEBUGGING 
@@ -364,15 +352,15 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 >     readChan str = readChan (outChan str) >>= 
 >                      (\(s,i)-> i <$ maybeDo sync s) . message
 
+> -- TODO: make sure this returns false when no listening Actor
 >
 > -- | Like 'send' but this blocks until the message is received in the
 > -- corresponding output stream, e.g. by an 'Actor'. Return 'True' if the
 > -- message was processed or 'False' otherwise, e.g. the receiving Actor 
 > -- exits prematurely.
 > sendSync :: (MonadIO m)=> Mailbox a -> a -> m Bool
-> sendSync b a = liftIO $ send' `catches` [Handler blockedHandler]
->
->     where send' = do                                           
+> sendSync b a = liftIO $ handle h $ send' `loggingException` "sendSync"
+>     where send' = do   
 >               st <- ST <$> newEmptyMVar
 >               let m = Message (Just st, a)
 >               -- block until actor is processing stream and it's our turn
@@ -381,19 +369,17 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 >               awaitSync st        
 >               return True
 >
->           -- this exception might be raised in `takeMVar sv`. It should not be
->           -- raised in the sendLockDo line.
->           blockedHandler :: SomeException -> IO Bool
->           blockedHandler e = do
->               when dEBUGGING $ putStrLn $ "sendSync: " ++ show e
->               return False
->           
+>           h :: SomeException -> IO Bool
+>           h _ = return False
+
+
 >
 > putMessage :: Mailbox a -> Message a -> IO ()
 > putMessage b m = 
->     -- TODO: HANDLE THE EXCEPTION THAT WILL BE RE-RAISED HERE.
 >     -- BlockedIndefinitelyOnMVar will be raised in waitSenderLock if this chan is
->     -- dead because no actors will ever work on it.
+>     -- dead because no actors will ever work on it. The exception re-raised
+>     -- here will be caught in an automatic handler installed by forkIO or will
+>     -- surface in IO, depending on usage above:
 >          bracket                           
 >            (takeSenderLock b)            
 >            (putSenderLock b)             
@@ -418,7 +404,6 @@ Internal function that feeds the actor computation its values.
 > runActorUsing :: ActorStream i -> Actor i -> IO ()
 > runActorUsing str a =  
 >       bracket_
->          -- TODO: CATCH SOME EXCEPTIONS HERE!:
 >         (openStream str)
 >         (closeStream str)
 >         (actorRunner str a)
@@ -432,22 +417,6 @@ Internal function that feeds the actor computation its values.
 >                maybeDo runActor_ 
 
 
-
-Currently we catch `BlockedIndefinitelyOnMVar` and Actor exits. In such
-situations the runtime has determined that a `send` is blocked forever. 
-
-This can propogate: if an Actor exited due to this caught exception it will 
-exit. Then either an actor that has been blocked on that ActorStream will take 
-over, or senders to the dead ActorStream will raise a BlockedIndefinitelyOnMVar
-and exit themselves.
-
-
-> catchActor :: IO () -> IO ()
-> catchActor io = try io >>= either blockedOnMvarHandler return
->     -- raised when runtime finds Actor blocked forever on `send`:
->     where blockedOnMvarHandler :: BlockedIndefinitelyOnMVar -> IO ()
->           blockedOnMvarHandler be = when dEBUGGING $
->                                      putStrLn $ "catchActor: " ++ show be
 
 
 Finally, the functions for forking Actors:
@@ -476,8 +445,7 @@ FORKING PROCEDURE:
 > forkActorUsing str ac = liftIO $ void $ do
 >     -- blocks, waiting for other actors to give up control:
 >     acquireStream str
->     -- Fork actor computation, waiting for first input:
->       -- TODO: HANDLE THE EXCEPTION THAT WILL BE RE-RAISED HERE:
+>     -- Fork actor computation, waiting for first input.
 >     forkIO $ bracket_ 
 >                  (unblockSenders str) 
 >                  (closeStream str)
@@ -515,3 +483,10 @@ TESTING
 > assertIO :: (MonadIO m)=> m Bool -> m ()
 > assertIO a = when dEBUGGING $ 
 >     a >>= liftIO . flip assert (return ())
+>
+> -- rethrow exceptions, logging to stdout if dEBUGGING
+> loggingException :: IO a -> String -> IO a
+> loggingException io s = Control.Exception.catch io handler
+>     where handler :: SomeException -> IO a
+>           handler e = do when dEBUGGING $ putStrLn $ ((s++": ")++) $ show e
+>                          throwIO e
