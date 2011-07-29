@@ -72,27 +72,21 @@ variable when tests are run?
 
 TODO
 -----
-    - look at using 'withMVar' rather than locks/unlocks
-    - look at BlockedIndefinitely behavior in light of new knowledge and remove
-      handlers for that exception.
-        - check ouut what will  happen with MVar in mutex in Mailbox
-    - switch exception handling to use bracket and variants
+    - check out what will  happen with MVar in mutex in Mailbox
     - testing
 
     - better documentation:
-        - show implementation in docs when it reveals something
         - examples
-        - explanations when useful
 
-    - test performance of send blocking and not blocking
-    - better exception handling with an eye for helping the GC
-
+    - test performance
     - export some useful Actors:
         - 'loop' which keeps consuming
         - function returning an actor to "load balance" inputs over multiple
           actors
-    - create an internal module allowing wrapping IO in Actor
 
+
+ACTORS AND THE ACTOR ENVIRONMENT
+================================
 
 
 Here we define the Actor environment, similar to IO, in which we can launch new
@@ -115,7 +109,13 @@ First we define an Actor: a function that takes an input, maybe returning a new
 actor:
 
 > newtype Actor i = Actor { stepActor :: i -> Action (Actor i) }
+> 
+> instance Cofunctor Actor where
+>     cofmap f a = Actor (fmap (cofmap f) . stepActor a . f)
 
+
+TRIVIAL HELPERS
+----------------
 
 These might make building actor computations more readable:
 
@@ -146,6 +146,10 @@ functions for building and running such computations:
 > continue_ = return . cofmap (const ())
 
 
+
+MESSAGE CHANNELS
+================
+
 Here we define the Channels for sending messages to Actors and launching actors
 to read from. These chans come in pairs, allowing for more fine-grained and
 explicit control over the ability to pass messages to Actors, and launch
@@ -173,8 +177,16 @@ functionality of the library more explicit.
 >                          , forkLock :: ForkLock
 >                          }
 >
+> instance Cofunctor Mailbox where
+>     cofmap f (Mailbox c l) = Mailbox (cofmap (fmap f) c) l
+> 
+> instance Functor ActorStream where
+>     fmap f (ActorStream c sl fl) = ActorStream (fmap (fmap f) c) sl fl
 
 
+
+LOCKING MECHANISMS
+==================
 
 We use a system of locks to enforce these properties of the environment:
 
@@ -182,23 +194,6 @@ We use a system of locks to enforce these properties of the environment:
 
     2) Attempting to fork on an ActorStream will block until no other Actor
         is processing the stream
-
-
-ActorStream LOCK HELPERS:
--------------------------
-
-TODO: Simply add 'loggingExceptions' here:
-
-> unblockSenders, blockSenders, acquireStream, giveUpStream :: ActorStream o -> IO ()
->  -- BlockedIndefinitelyOnMVar HERE MEANS A PREVIOUS CLEANUP AFTER A FORK FAILED. 
-> acquireStream = (`loggingException` "acquireStream") . takeMVar . getFLock . forkLock
-> giveUpStream = (`loggingException` "giveUpStream") . flip putMVar () . getFLock . forkLock
-> unblockSenders = (`loggingException` "unblockSenders") . flip putMVar () . getSLock . senderLock
-> blockSenders = (`loggingException` "blockSenders") . takeMVar . getSLock . senderLock 
->
-> closeStream, openStream :: ActorStream o -> IO ()
-> closeStream str = (blockSenders str >> giveUpStream str) `loggingException` "closeStream"
-> openStream str = (acquireStream str >> unblockSenders str) `loggingException` "openStream"
 
 
 SEND LOCKS
@@ -219,6 +214,7 @@ All the senders who want to send block on this mutex:
 >  -- humbling appology
 > putSenderLock = putMVar . getMutex . senderLockMutex
 
+
 They then must readMVar here before writing to the Chan. This inner MVar is
 copied in the corresponding ActorStream:
 
@@ -238,7 +234,6 @@ in line behind all the senders currently in the queue to do a 'take' on the
 MVar.
 
 
-
 FORK LOCKS
 -----------
 
@@ -248,23 +243,37 @@ on this:
 
 > newtype ForkLock = FL { getFLock :: MVar () }
 
-Property: if a fork operation raises a BlockedIndefinitelyOnMVar exception, it
-means the lock wasn't returned. Explore how we should react in that case.
+
+Here are some helpers for dealing with lock types. The 'loggingException' bits
+below should disappear when not compiled with dEBUGGING:
+
+> unblockSenders, blockSenders, acquireStream, giveUpStream :: ActorStream o -> IO ()
+>  -- BlockedIndefinitelyOnMVar HERE MEANS A PREVIOUS CLEANUP AFTER A FORK FAILED. 
+> acquireStream = (`loggingException` "acquireStream") . takeMVar . getFLock . forkLock
+> giveUpStream = (`loggingException` "giveUpStream") . flip putMVar () . getFLock . forkLock
+> unblockSenders = (`loggingException` "unblockSenders") . flip putMVar () . getSLock . senderLock
+> blockSenders = (`loggingException` "blockSenders") . takeMVar . getSLock . senderLock 
+>
+> closeStream, openStream :: ActorStream o -> IO ()
+> closeStream str = (blockSenders str >> giveUpStream str) `loggingException` "closeStream"
+> openStream str = (acquireStream str >> unblockSenders str) `loggingException` "openStream"
 
 
-    HOW WE USE THE LOCKS
-    --------------------
+HOW WE USE THE LOCKS
+--------------------
 
-        newChanPair (ActorStream):
-            ...
-        forkActorOn:
-            ...
-        send:
-            ...
-        done (or exception handled):
-            ...
+    newChanPair (ActorStream):
+        ...
+    forkActorOn:
+        ...
+    send:
+        ...
+    done (or exception handled):
+        ...
 
-        
+
+MESSAGES
+========
 
 The internal message type. The addition of an MVar allows for syncronous message
 passing between Actors:
@@ -281,19 +290,22 @@ passing between Actors:
 > wrapMessage = Message . (,) Nothing
 
 
+HOW WE USE SyncToken, PASSED WITH EACH MESSAGE:
+------------------------------------------------
 
-    HOW WE USE SyncToken, PASSED WITH EACH MESSAGE:
-    -----------------------------------------------
+    send:
+        - Pass empty MVar, don't check it
 
-        send:
-            - Pass empty MVar, don't check it
+    sendSync:
+        - Pass empty MVar, block until we can pop ()
 
-        sendSync:
-            - Pass empty MVar, block until we can pop ()
+    actor receiver:
+        - before acting on message, write a () to MVar
 
-        actor receiver:
-            - before acting on message, write a () to MVar
 
+
+CREATING CHANS / SENDING MESSAGES
+==================================
 
 > -- | Create a new pair of input and output chans: a 'Mailbox' where
 > -- messages can be sent, and an 'ActorStream' which can supply an Actor with
@@ -308,21 +320,22 @@ passing between Actors:
 >     return (Mailbox inC sMutex, ActorStream outC sLock fLock)
 
 
-
 A channel of communication should never have senders without a receiver. To
 enforce this idea, we make 'send' operations block until an Actor is consuming
 the corresponding stream. When the runtime determines that a sender will be
-blocked indefinitely, an exception will be raised: BlockedIndefinitelyOnMVar. 
+blocked indefinitely, an exception will be raised (BlockedIndefinitelyOnMVar)
+something that would not happen with plain Chans.
 
-This doesn't guarentee that all messages in the Chan will be processed, but in
-such a situation, hopefully a BlockedIndefinitelyOnMVar will be raised, which we
-can catch and (maybe) use to help garbage collection on the underlying Chan and
-in general keep things nice.
+This doesn't guarentee that all messages in the Chan will be processed or that a
+chan won't fill faster than its messages are consumed (sync messages are useful
+i.t.r).
 
 In a way, we are always synchronous IN THE MEDIUM and may be synchronous 
 IN THE MESSAGE as well by choosing the appropriate 'send' function. 
 
 
+SEND FUNCTIONS
+---------------
 
 > -- | Send a message asynchronously. This can be used to send messages to other
 > -- Actors via a 'Mailbox', or used as a means of output from the Actor system.
@@ -338,6 +351,7 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 > send b = liftIO . writeChan b
 >
 
+These classes are from the split-chan package:
 
 > instance WritableChan Mailbox where
 >     writeChan b = putMessage b . wrapMessage
@@ -367,7 +381,8 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 >           h _ = return False
 
 
->
+Internal function:
+
 > putMessage :: Mailbox a -> Message a -> IO ()
 > putMessage b m = 
 >     -- BlockedIndefinitelyOnMVar will be raised in waitSenderLock if this chan is
@@ -380,9 +395,10 @@ IN THE MESSAGE as well by choosing the appropriate 'send' function.
 >            (\sl-> waitSenderLock sl >> writeChan (inChan b) m) 
 
 
+RUNNING AND FORKING ACTORS
+===========================
 
-
-Internal function that feeds the actor computation its values.
+Internal function that feeds the actor computation its values:
 
 > actorRunner :: ActorStream i -> Actor i -> IO ()
 > actorRunner str = loop
@@ -391,7 +407,10 @@ Internal function that feeds the actor computation its values.
 >                      maybeDo loop 
 
 
-...a simple exported runnner that does not fork, and works in IO:
+RUNNING
+--------
+
+These work in IO and returning () when the actor finishes with done/mzero:
 
 > -- | run an Actor computation in the main thread, returning when the Actor
 > -- exits. Exceptions are not caught:
@@ -411,9 +430,8 @@ Internal function that feeds the actor computation its values.
 >                maybeDo runActor_ 
 
 
-
-
-Finally, the functions for forking Actors:
+FORKING
+--------
 
 > -- | fork an actor, returning its input 'Mailbox'
 > forkActor :: (MonadIO m)=> Actor i -> m (Mailbox i)
@@ -421,9 +439,17 @@ Finally, the functions for forking Actors:
 >     (b,str) <- newChanPair
 >     forkActorUsing str a
 >     return b
+>
+> -- | fork a looping computation which starts immediately. Equivalent to
+> -- launching an 'Actor_' and another 'Actor' that sends an infinite stream of
+> -- ()s
+> forkActor_ :: (MonadIO m)=> Actor_ -> m ()
+> forkActor_ = liftIO . void . forkIO . runActor_  
 
 
-FORKING PROCEDURE:
+
+This is how the internal forking procedure below works, w.r.t locks, etc:
+
     block waiting to take forkLock
     forkIO:                       
         unblock senders
@@ -447,30 +473,13 @@ FORKING PROCEDURE:
 
 
 
-> -- | fork a looping computation which starts immediately. Equivalent to
-> -- launching an 'Actor_' and another 'Actor' that sends an infinite stream of
-> -- ()s
-> forkActor_ :: (MonadIO m)=> Actor_ -> m ()
-> forkActor_ = liftIO . void . forkIO . runActor_  
+
+TESTING AND HELPERS:
+=====================
 
 
-
-> instance Cofunctor Mailbox where
->     cofmap f (Mailbox c l) = Mailbox (cofmap (fmap f) c) l
-> 
-> instance Cofunctor Actor where
->     cofmap f a = Actor (fmap (cofmap f) . stepActor a . f)
-> 
-> instance Functor ActorStream where
->     fmap f (ActorStream c sl fl) = ActorStream (fmap (fmap f) c) sl fl
-
-> -- HELPER:
 > maybeDo :: (Monad m) => (a -> m ()) -> Maybe a -> m ()
 > maybeDo = maybe (return ())
-
-
-TESTING
-=======
 
 > {-
 > -- When dEBUGGING is False at compile time and optimizations are turned on, 
