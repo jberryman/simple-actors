@@ -248,15 +248,20 @@ Here are some helpers for dealing with lock types. The 'loggingException' bits
 below should disappear when not compiled with dEBUGGING:
 
 > unblockSenders, blockSenders, acquireStream, giveUpStream :: ActorStream o -> IO ()
->  -- BlockedIndefinitelyOnMVar HERE MEANS A PREVIOUS CLEANUP AFTER A FORK FAILED. 
-> acquireStream = (`loggingException` "acquireStream") . takeMVar . getFLock . forkLock
-> giveUpStream = (`loggingException` "giveUpStream") . flip putMVar () . getFLock . forkLock
-> unblockSenders = (`loggingException` "unblockSenders") . flip putMVar () . getSLock . senderLock
-> blockSenders = (`loggingException` "blockSenders") . takeMVar . getSLock . senderLock 
+> acquireStream = loggingException "acquireStream" . 
+>                  takeMVar . getFLock . forkLock
+> giveUpStream = loggingException "giveUpStream" . 
+>                  flip putMVar () . getFLock . forkLock
+> unblockSenders = loggingException "unblockSenders" .
+>                  flip putMVar () . getSLock . senderLock
+> blockSenders = loggingException "blockSenders" .
+>                  takeMVar . getSLock . senderLock 
 >
 > closeStream, openStream :: ActorStream o -> IO ()
-> closeStream str = (blockSenders str >> giveUpStream str) `loggingException` "closeStream"
-> openStream str = (acquireStream str >> unblockSenders str) `loggingException` "openStream"
+> closeStream str = loggingException "closeStream" $
+>                    blockSenders str >> giveUpStream str
+> openStream str = loggingException "openStream" $
+>                    acquireStream str >> unblockSenders str
 
 
 HOW WE USE THE LOCKS
@@ -368,7 +373,7 @@ These classes are from the split-chan package:
 > -- message was processed or 'False' otherwise, e.g. the receiving Actor 
 > -- exits prematurely.
 > sendSync :: (MonadIO m)=> Mailbox a -> a -> m Bool
-> sendSync b a = liftIO $ handle h $ send' `loggingException` "sendSync"
+> sendSync b a = liftIO $ handle h $ loggingException "sendSync" send'
 >     where send' = do   
 >               st <- ST <$> newEmptyMVar
 >               let m = Message (Just st, a)
@@ -491,8 +496,8 @@ TESTING AND HELPERS:
 > -}
 >
 > -- rethrow exceptions, logging to stdout if dEBUGGING
-> loggingException :: IO a -> String -> IO a
-> loggingException io s 
+> loggingException :: String -> IO a -> IO a
+> loggingException s io 
 >     | dEBUGGING = Control.Exception.catch io handler
 >     | otherwise = io
 >             where handler :: SomeException -> IO a
