@@ -1,4 +1,4 @@
-> {-# LANGUAGE CPP, GeneralizedNewtypeDeriving, ViewPatterns #-}
+> {-# LANGUAGE CPP, GeneralizedNewtypeDeriving #-}
 
 This module exports a simple, idiomatic implementation of the Actor Model.
 
@@ -72,7 +72,7 @@ variable when tests are run?
 
 TODO
 -----
-    - check out what will  happen with MVar in mutex in Mailbox
+    - check out what will happen with MVar in mutex in Mailbox
     - testing
 
     - better documentation:
@@ -138,11 +138,11 @@ functions for building and running such computations:
 > -- | An Actor that discards its input
 > type Actor_ = Actor ()
 >
-> -- | Continue with an Actor_ computation, lifting it into the current Actor
+> -- | Continue with an 'Actor_' computation, lifting it into the current Actor
 > -- input type
 > --
 > -- > continue_ = continue . cofmap (const ())
-> continue_ :: Actor_ -> Action (Actor i)
+> continue_ :: Actor_ -> Action (Actor i) 
 > continue_ = return . cofmap (const ())
 
 
@@ -313,10 +313,11 @@ CREATING CHANS / SENDING MESSAGES
 > newChanPair :: (MonadIO m)=> m (Mailbox a, ActorStream a)
 > newChanPair = liftIO $ do
 >     (inC,outC) <- newSplitChan
->     fLock <- FL <$> newEmptyMVar
+>      -- fork Lock starts initially full:
+>     fLock <- FL <$> newMVar ()
+>      -- sender lock starts initially empty (forker fills):
 >     sLock <- SL <$> newEmptyMVar
 >     sMutex <- SLM <$> newMVar sLock
->
 >     return (Mailbox inC sMutex, ActorStream outC sLock fLock)
 
 
