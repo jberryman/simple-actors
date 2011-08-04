@@ -15,7 +15,6 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >
 >     -- * Message passing and IO
 >     , send
->     , sendSync
 >     -- ** Mailbox / ActorStream pair
 >     , newChanPair
 >     , Mailbox
@@ -165,23 +164,23 @@ functionality of the library more explicit.
 > -- send messages to a Mailbox, where they will supply a corresponding
 > -- 'ActorStream'
 > data Mailbox i = Mailbox { 
->                      inChan :: InChan (Message i)
+>                      inChan :: InChan i
 >                    , senderLockMutex :: SenderLockMutex 
 >                    }
 >
 > -- | A stream of messages, received via a corresponding 'Mailbox', which can
 > -- /only/ act as input for an 'Actor' computation
 > data ActorStream o = ActorStream { 
->                            outChan :: OutChan (Message o)
+>                            outChan :: OutChan o
 >                          , senderLock :: SenderLock
 >                          , forkLock :: ForkLock
 >                          }
 >
 > instance Cofunctor Mailbox where
->     cofmap f (Mailbox c l) = Mailbox (cofmap (fmap f) c) l
+>     cofmap f (Mailbox c l) = Mailbox (cofmap f c) l
 > 
 > instance Functor ActorStream where
->     fmap f (ActorStream c sl fl) = ActorStream (fmap (fmap f) c) sl fl
+>     fmap f (ActorStream c sl fl) = ActorStream (fmap f c) sl fl
 
 
 
@@ -206,14 +205,14 @@ All the senders who want to send block on this mutex:
 > takeSenderLock :: Mailbox i -> IO SenderLock
 >  -- TODO: BlockedIndefinitelyOnMVar HERE MEANS: the SenderLock was never
 >  -- returned and we lost the game. Re-raise a more meaningful exception
-> takeSenderLock = loggingException "takeSenderLock" . 
+> takeSenderLock = loggingException "BUG: takeSenderLock" . 
 >                   takeMVar . getMutex . senderLockMutex
 >
 > putSenderLock :: Mailbox i -> SenderLock -> IO ()
 >  -- TODO: BlockedIndefinitelyOnMVar HERE MEANS: the (some?) SenderLock was
 >  -- 'put' or never taken or aliens. We lost the game and should re-raise a
 >  -- humbling appology
-> putSenderLock m = loggingException "putSenderLock" . 
+> putSenderLock m = loggingException "BUG: putSenderLock" . 
 >                    putMVar (getMutex $ senderLockMutex m)
 
 
@@ -244,24 +243,22 @@ on this:
 > newtype ForkLock = FL { getFLock :: MVar () }
 
 
-Here are some helpers for dealing with lock types. The 'loggingException' bits
-below should disappear when not compiled with dEBUGGING:
+Here are some helpers for dealing with lock types:
 
 > unblockSenders, blockSenders, acquireStream, giveUpStream :: ActorStream o -> IO ()
-> acquireStream = loggingException "acquireStream" . 
+> -- Exceptions raised here mean our lock implementation is buggy:
+> acquireStream = loggingException "BUG: acquireStream" . 
 >                  takeMVar . getFLock . forkLock
-> giveUpStream = loggingException "giveUpStream" . 
+> giveUpStream = loggingException "BUG: giveUpStream" . 
 >                  flip putMVar () . getFLock . forkLock
-> unblockSenders = loggingException "unblockSenders" .
+> unblockSenders = loggingException "BUG: unblockSenders" .
 >                  flip putMVar () . getSLock . senderLock
-> blockSenders = loggingException "blockSenders" .
+> blockSenders = loggingException "BUG: blockSenders" .
 >                  takeMVar . getSLock . senderLock 
 >
 > closeStream, openStream :: ActorStream o -> IO ()
-> closeStream str = loggingException "closeStream" $
->                    blockSenders str >> giveUpStream str
-> openStream str = loggingException "openStream" $
->                    acquireStream str >> unblockSenders str
+> closeStream str = blockSenders str >> giveUpStream str
+> openStream str = acquireStream str >> unblockSenders str 
 
 
 HOW WE USE THE LOCKS
@@ -275,38 +272,6 @@ HOW WE USE THE LOCKS
         ...
     done (or exception handled):
         ...
-
-
-MESSAGES
-========
-
-The internal message type. The addition of an MVar allows for syncronous message
-passing between Actors:
-
-> newtype Message i = Message { message :: (Maybe SyncToken, i) } 
->                   deriving Functor
-> -- Initially empty, filled by actor when message read:
-> newtype SyncToken = ST { syncToken :: MVar () }
->
-> sync, awaitSync :: SyncToken -> IO ()
-> sync = loggingException "sync" . flip putMVar () . syncToken
-> awaitSync = loggingException "awaitSync" . takeMVar . syncToken
->
-> wrapMessage :: i -> Message i
-> wrapMessage = Message . (,) Nothing
-
-
-HOW WE USE SyncToken, PASSED WITH EACH MESSAGE:
-------------------------------------------------
-
-    send:
-        - Pass empty MVar, don't check it
-
-    sendSync:
-        - Pass empty MVar, block until we can pop ()
-
-    actor receiver:
-        - before acting on message, write a () to MVar
 
 
 
@@ -331,14 +296,12 @@ A channel of communication should never have senders without a receiver. To
 enforce this idea, we make 'send' operations block until an Actor is consuming
 the corresponding stream. When the runtime determines that a sender will be
 blocked indefinitely, an exception will be raised (BlockedIndefinitelyOnMVar)
-something that would not happen with plain Chans.
+something that would not happen with plain Chans. 
 
-This doesn't guarentee that all messages in the Chan will be processed or that a
-chan won't fill faster than its messages are consumed (sync messages are useful
-i.t.r).
+This doesn't guarantee that all messages in the Chan will be processed or that a
+chan won't fill faster than its messages are consumed; it simply aids garbage
+collection and keeps things a little more controlled.
 
-In a way, we are always synchronous IN THE MEDIUM and may be synchronous 
-IN THE MESSAGE as well by choosing the appropriate 'send' function. 
 
 
 SEND FUNCTIONS
@@ -361,35 +324,15 @@ SEND FUNCTIONS
 These classes are from the split-chan package:
 
 > instance WritableChan Mailbox where
->     writeChan b = putMessage b . wrapMessage
+>     writeChan = putMessage
 >
 > instance ReadableChan ActorStream where
->     readChan str = readChan (outChan str) >>= 
->                      (\(s,i)-> i <$ maybeDo sync s) . message
-
-> -- TODO: make sure this returns false when no listening Actor
->
-> -- | Like 'send' but this blocks until the message is received in the
-> -- corresponding output stream, e.g. by an 'Actor'. Return 'True' when the
-> -- message is processed or 'False' if the runtime determines it will never be
-> -- processed, e.g. if the receiving actor exits prematurely.
-> sendSync :: (MonadIO m)=> Mailbox a -> a -> m Bool
-> sendSync b a = liftIO $ handle h $ loggingException "sendSync" send'
->     where send' = do   
->               st <- ST <$> newEmptyMVar
->               -- block until actor is processing stream and it's our turn
->               putMessage b $ Message (Just st, a)
->                -- block until actor reads message
->               awaitSync st        
->               return True
->
->           h :: SomeException -> IO Bool
->           h _ = return False
+>     readChan = readChan . outChan 
 
 
 Internal function:
 
-> putMessage :: Mailbox a -> Message a -> IO ()
+> putMessage :: Mailbox a -> a -> IO ()
 > putMessage b m = loggingException "putMessage" $
 >     -- BlockedIndefinitelyOnMVar will be raised in waitSenderLock if this chan is
 >     -- dead because no actors will ever work on it. The exception re-raised
@@ -497,6 +440,10 @@ TESTING AND HELPERS:
 >     a >>= liftIO . flip assert (return ())
 > -}
 >
+
+Occurences of this should turn into "return ()" when the CPP sets 
+    dEBUGGING = False
+
 > -- rethrow exceptions, logging to stdout if dEBUGGING
 > loggingException :: String -> IO a -> IO a
 > loggingException s io 
