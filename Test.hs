@@ -4,10 +4,13 @@ module Main
 import Control.Concurrent.Actors
 import Control.Concurrent.Chan
 import Control.Concurrent(forkIO,threadDelay)
+import Control.Concurrent.MVar
+import Control.Exception
 import Data.Cofunctor
 
 main = do
-    forkActorQueueTest
+    handleTest2
+    --forkActorQueueTest
 
 ------------------------
 -- informal test that forkLocking is working:
@@ -43,7 +46,44 @@ senderTo n c = Actor $ \_-> do
         else continue_ $ senderTo (n-1) c
 
 ------------------------
-sendSyncTest = undefined
+-- Informal test that synchronous sends work, and return false when no Actors
+-- will ever get to them. This should include BlockedIndefinitely on the
+-- sendLock as well as the syncLock:
+sendSyncTest = do
+    b <- forkActor $ reader 50
+    
+    out <- newChan
+    forkActor_ $ senderSyncTo b out 100
+    
+    threadDelay 99999
+    getChanContents out >>=
+        putStrLn . unwords . take 100
+
+          -- reads n messages then exits:
+    where reader :: Int -> Actor ()
+          reader n = Actor $ \() -> do
+              if n == 0 then done
+                        else continue $ reader (n-1)
+          
+          senderSyncTo :: Mailbox () -> Chan String -> Int -> Actor_
+          senderSyncTo b c n = Actor $ \_-> do
+              success <- sendSync b ()
+              send c $ if success then ":-)" 
+                                  else ":-0" 
+              if n /= 0 then continue (senderSyncTo b c $ n-1)
+                        else done
+------------------------
+-- An example of catching BlockedIndefinitely and returning Bool:
+              
+handleTest = let h :: SomeException -> IO Bool
+                 h e = print e >> return False
+                 l = sequence [newEmptyMVar, newEmptyMVar,newEmptyMVar,newEmptyMVar]
+              in l >>= mapM (handle h . takeMVar) >>= print
+
+handleTest2 = let h :: SomeException -> IO Bool
+                  h e = print e >> return False
+               in do v <- newEmptyMVar
+                     mapM (handle h . takeMVar) [v,v,v,v] >>= print
 
 
 ------------------------
