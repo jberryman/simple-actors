@@ -59,6 +59,7 @@ handleTest2 = let h :: SomeException -> IO Bool
                      mapM (handle h . takeMVar) [v,v,v,v] >>= print
 -}
 
+
 ------------------------
 -- A kind of "living binary tree"
 
@@ -70,7 +71,12 @@ binaryTree = do
 
 treeNode = undefined
 
+
+
 ------------------------
+------------------------
+-- OLD:
+
 main2 = do
     c <- newChan
     forkActor_ $ simpleFork_ c

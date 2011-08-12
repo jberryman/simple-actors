@@ -432,6 +432,11 @@ TESTING AND HELPERS:
 > maybeDo :: (Monad m) => (a -> m ()) -> Maybe a -> m ()
 > maybeDo = maybe (return ())
 
+
+
+Occurences of these should turn into "return ()" when the CPP sets 
+    dEBUGGING = False
+
 > {-
 > -- When dEBUGGING is False at compile time and optimizations are turned on, 
 > -- this should completely disappear
@@ -440,10 +445,6 @@ TESTING AND HELPERS:
 >     a >>= liftIO . flip assert (return ())
 > -}
 >
-
-Occurences of this should turn into "return ()" when the CPP sets 
-    dEBUGGING = False
-
 > -- rethrow exceptions, logging to stdout if dEBUGGING
 > loggingException :: String -> IO a -> IO a
 > loggingException s io 
