@@ -369,15 +369,12 @@ RUNNING AND FORKING ACTORS
 
 Internal function that feeds the actor computation its values:
 
+> -- N.B.: Be careful not to throw away any input here when we hit the null
+> -- behavior:
 > actorRunner :: ActorStream i -> Actor i -> IO ()
 > actorRunner str = maybeDo step . stepActor 
 >     where step beh = readChan str >>= action . beh >>= actorRunner str
-> {-
-> actorRunner str = loop
->     where loop a = readChan str >>= 
->                     runAction . stepActor a >>= 
->                      maybeDo loop 
-> -}
+
 
 
 RUNNING
