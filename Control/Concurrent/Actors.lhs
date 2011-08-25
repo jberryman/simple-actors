@@ -7,7 +7,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     -- * Actor computations
 >       Behavior(..)
 >     , Action()
->     -- ** Type and Function synonyms for building Behaviors
+>     -- ** Type and Function synonyms for building @Behaviors@
 >     , Behavior_
 >     , continue_
 >     , continue
@@ -15,15 +15,15 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >
 >     -- * Message passing and IO
 >     , send
->     -- ** Mailbox / ActorStream pair
->     , newChanPair
+>     -- ** Mailbox / Actor pair
+>     , forkActor
 >     , Mailbox
->     , ActorStream
+>     , Actor
 >
 >     -- * Running Actors
->     , forkActor
->     , forkActorUsing
->     , forkBehavior_
+>     , forkActorDoing
+>     , doing
+>     , forkActorDoing_
 >     -- ** Running Actor computations in current IO thread
 >     , runBehaviorUsing
 >     , runBehavior_
@@ -72,7 +72,8 @@ variable when tests are run?
 TODO
 -----
     - branch and
-        - make name changes to Actor, ActorStream, etc.
+        - make name changes
+        - fix module organization and documentation
         - remove trivial functions
         - merge 
     - merge, fix names in test modules
@@ -178,25 +179,30 @@ functionality of the library more explicit.
 
 > -- | The input portion of our buffered message-passing medium. Actors can 
 > -- send messages to a Mailbox, where they will supply a corresponding
-> -- 'ActorStream'
+> -- 'Actor'
 > data Mailbox i = Mailbox { 
 >                      inChan :: InChan i
 >                    , senderLockMutex :: SenderLockMutex 
 >                    }
 >
-> -- | A stream of messages, received via a corresponding 'Mailbox', which can
-> -- /only/ act as input for an 'Actor' computation
-> data ActorStream o = ActorStream { 
->                            outChan :: OutChan o
->                          , senderLock :: SenderLock
->                          , forkLock :: ForkLock
->                          }
+> -- | A token representing a forked concurrent actor, which might be idle or
+> -- running a 'Behavior' that is processing inputs sent to its 'Mailbox'
+> --
+> -- /IYI:/ The only thing we are allowed to do to an @Actor@ directly is to enqueue
+> -- 'Behaviors' (see 'foo'). This separation of actor initialization and
+> -- behavior enqueueing is necessary to allow e.g. two actors access each to
+> -- the other\'s Mailbox
+> data Actor o = Actor { outChan :: OutChan o
+>                      , senderLock :: SenderLock 
+>                      , forkLock :: ForkLock     
+>                      }                          
+>                         
 >
 > instance Cofunctor Mailbox where
 >     cofmap f (Mailbox c l) = Mailbox (cofmap f c) l
 > 
-> instance Functor ActorStream where
->     fmap f (ActorStream c sl fl) = ActorStream (fmap f c) sl fl
+> instance Functor Actor where
+>     fmap f (Actor c sl fl) = Actor (fmap f c) sl fl
 
 
 
@@ -207,7 +213,7 @@ We use a system of locks to enforce these properties of the environment:
 
     1) Sends will block until there is an Actor processing the stream
 
-    2) Attempting to fork on an ActorStream will block until no other Actor
+    2) Attempting to fork on an Actor will block until no other Actor
         is processing the stream
 
 
@@ -233,7 +239,7 @@ All the senders who want to send block on this mutex:
 
 
 They then must readMVar here before writing to the Chan. This inner MVar is
-copied in the corresponding ActorStream:
+copied in the corresponding Actor:
 
 > newtype SenderLock = SL { getSLock :: MVar () }
 >
@@ -261,7 +267,7 @@ on this:
 
 Here are some helpers for dealing with lock types:
 
-> unblockSenders, blockSenders, acquireStream, giveUpStream :: ActorStream o -> IO ()
+> unblockSenders, blockSenders, acquireStream, giveUpStream :: Actor o -> IO ()
 > -- Exceptions raised here mean our lock implementation is buggy:
 > acquireStream = loggingException "BUG: acquireStream" . 
 >                  takeMVar . getFLock . forkLock
@@ -272,7 +278,7 @@ Here are some helpers for dealing with lock types:
 > blockSenders = loggingException "BUG: blockSenders" .
 >                  takeMVar . getSLock . senderLock 
 >
-> closeStream, openStream :: ActorStream o -> IO ()
+> closeStream, openStream :: Actor o -> IO ()
 > closeStream str = blockSenders str >> giveUpStream str
 > openStream str = acquireStream str >> unblockSenders str 
 
@@ -280,7 +286,7 @@ Here are some helpers for dealing with lock types:
 HOW WE USE THE LOCKS
 --------------------
 
-    newChanPair (ActorStream):
+    forkActor (Actor):
         ...
     forkActorOn:
         ...
@@ -294,18 +300,26 @@ HOW WE USE THE LOCKS
 CREATING CHANS / SENDING MESSAGES
 ==================================
 
-> -- | Create a new pair of input and output chans: a 'Mailbox' where
-> -- messages can be sent, and an 'ActorStream' which can supply an Actor with
-> -- input messages, sent to the corresponding Mailbox.
-> newChanPair :: (MonadIO m)=> m (Mailbox a, ActorStream a)
-> newChanPair = liftIO $ do
+Note, after much thought I've decided the abstraction that is the module
+interface should differ from the implementation for conceptual simplicity.
+
+So what we call Actor is actual a set of Chans and locks, but we treat it like a
+token corresponding to an actor running or idling in the ether. Furthermore,
+this doesn't actual do a forkIO, which we treat as an unimportant implementation
+detail.
+
+> -- | Create a new concurrent 'Actor', returning its 'Mailbox'. Using 'foo' to
+> -- initialize a 'Behavior' for the @Actor@ will cause it to unlock its
+> -- 'Mailbox' and begin accepting and processing inputs.
+> forkActor :: (MonadIO m)=> m (Mailbox a, Actor a)
+> forkActor = liftIO $ do
 >     (inC,outC) <- newSplitChan
 >      -- fork Lock starts initially full:
 >     fLock <- FL <$> newMVar ()
 >      -- sender lock starts initially empty (forker fills):
 >     sLock <- SL <$> newEmptyMVar
 >     sMutex <- SLM <$> newMVar sLock
->     return (Mailbox inC sMutex, ActorStream outC sLock fLock)
+>     return (Mailbox inC sMutex, Actor outC sLock fLock)
 
 
 A channel of communication should never have senders without a receiver. To
@@ -328,7 +342,7 @@ SEND FUNCTIONS
 > -- .
 > -- /Sends to a Mailbox/:
 > -- This does not wait for the Actor to receive the message before returning, 
-> -- but will block while no Actor is processing the corresponding ActorStream;
+> -- but will block while no Actor is processing the corresponding Actor;
 > -- If the runtime determines that a new Actor will never take over, an
 > -- exception will be raised.
 > -- . 
@@ -342,7 +356,7 @@ These classes are from the split-chan package:
 > instance WritableChan Mailbox where
 >     writeChan = putMessage
 >
-> instance ReadableChan ActorStream where
+> instance ReadableChan Actor where
 >     readChan = readChan . outChan 
 
 
@@ -369,7 +383,7 @@ Internal function that feeds the actor computation its values:
 
 > -- N.B.: Be careful not to throw away any input here when we hit the null
 > -- behavior:
-> actorRunner :: ActorStream i -> Behavior i -> IO ()
+> actorRunner :: Actor i -> Behavior i -> IO ()
 > actorRunner str = maybeDo step . stepBehavior 
 >     where step beh = readChan str >>= action . beh >>= actorRunner str
 
@@ -382,7 +396,7 @@ These work in IO and returning () when the actor finishes with done/mzero:
 
 > -- | run a 'Behavior' in the main thread, returning when it completes. 
 > -- Exceptions are not caught:
-> runBehaviorUsing :: ActorStream i -> Behavior i -> IO ()
+> runBehaviorUsing :: Actor i -> Behavior i -> IO ()
 > runBehaviorUsing str a =  
 >       bracket_
 >         (openStream str)
@@ -402,17 +416,17 @@ FORKING
 --------
 
 > -- | fork an actor, returning its input 'Mailbox'
-> forkActor :: (MonadIO m)=> Behavior i -> m (Mailbox i)
-> forkActor a = do
->     (b,str) <- newChanPair
->     forkActorUsing str a
+> forkActorDoing :: (MonadIO m)=> Behavior i -> m (Mailbox i)
+> forkActorDoing a = do
+>     (b,str) <- forkActor
+>     doing str a
 >     return b
 >
 > -- | fork a looping computation which starts immediately. Equivalent to
 > -- launching an 'Behavior_' and another 'Behavior' that sends an infinite stream of
 > -- ()s
-> forkBehavior_ :: (MonadIO m)=> Behavior_ -> m ()
-> forkBehavior_ = liftIO . void . forkIO . runBehavior_  
+> forkActorDoing_ :: (MonadIO m)=> Behavior_ -> m ()
+> forkActorDoing_ = liftIO . void . forkIO . runBehavior_  
 
 
 
@@ -427,10 +441,11 @@ This is how the internal forking procedure below works, w.r.t locks, etc:
             giveUpStream to other forkers
 
 
-> -- | fork an actor that reads from the supplied 'ActorStream'. This blocks,
-> -- if another Actor is reading from the stream, until that Actor exits.
-> forkActorUsing :: (MonadIO m)=> ActorStream i -> Behavior i -> m ()
-> forkActorUsing str ac = liftIO $ void $ do
+> -- | Enqueue a 'Behavior' for an 'Actor' to perform. This will block while the
+> -- @Actor@ is already 'doing' a @Behavior@, returning when the @Actor@ begins
+> -- the passed @Behavior@.
+> doing :: (MonadIO m)=> Actor i -> Behavior i -> m ()
+> doing str ac = liftIO $ void $ do
 >     -- blocks, waiting for other actors to give up control:
 >     acquireStream str
 >     -- Fork actor computation, waiting for first input.
