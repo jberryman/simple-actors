@@ -5,10 +5,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > module Control.Concurrent.Actors (
 >
 >     -- * Actor computations
->       Actor(..)
+>       Behavior(..)
 >     , Action()
->     -- ** Type and Function synonyms for building Actors
->     , Actor_
+>     -- ** Type and Function synonyms for building Behaviors
+>     , Behavior_
 >     , continue_
 >     , continue
 >     , done
@@ -23,10 +23,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     -- * Running Actors
 >     , forkActor
 >     , forkActorUsing
->     , forkActor_
+>     , forkBehavior_
 >     -- ** Running Actor computations in current IO thread
->     , runActorUsing
->     , runActor_
+>     , runBehaviorUsing
+>     , runBehavior_
 >
 >     -- * Supporting classes
 >     , module Data.Cofunctor 
@@ -71,7 +71,6 @@ variable when tests are run?
 
 TODO
 -----
-    - switch to making Actor a Maybe wrapper, w/ monoid instance
     - branch and
         - make name changes to Actor, ActorStream, etc.
         - remove trivial functions
@@ -106,28 +105,27 @@ the user to enforce these restrictions.
 >                  deriving (Monad, Functor, Applicative, MonadIO)
 
 
-First we define an Actor: a function that takes an input, maybe returning a new
-actor:
+First we define a Behavior: either the null behavior, or a function that takes 
+an input, performs some Actions and returns the next Behavior:
 
-> newtype Actor i = Actor { stepActor :: Maybe (BehaviorStep i) }
+> newtype Behavior i = Behavior { stepBehavior :: Maybe (BehaviorStep i) }
 >                 --deriving (Applicative,Alternative)
 >
-> type BehaviorStep i = i -> Action (Actor i)
+> type BehaviorStep i = i -> Action (Behavior i)
 >
 > -- behavior fmap for cleaning up definitions below:
-> bfmap :: (BehaviorStep i -> BehaviorStep i') -> Actor i -> Actor i'
-> bfmap f = Actor . fmap f . stepActor
+> bfmap :: (BehaviorStep i -> BehaviorStep i') -> Behavior i -> Behavior i'
+> bfmap f = Behavior . fmap f . stepBehavior
 >
 > -- | 'mempty' is the null 'Behavior' and 'mappend' provides a way of sequencing
 > -- behaviors; the second takes over when the first finishes.
-> instance Monoid (Actor i) where
->     mempty = Actor Nothing
->     mappend (Actor Nothing) a2 = a2
+> instance Monoid (Behavior i) where
+>     mempty = Behavior Nothing
+>     mappend (Behavior Nothing) a2 = a2
 >     mappend a1 a2 = bfmap mappendChild a1
 >         where mappendChild = fmap $ fmap (`mappend` a2)
 > 
-> instance Cofunctor Actor where
->     --cofmap f a = Actor (fmap (cofmap f) . stepActor a . f)
+> instance Cofunctor Behavior where
 >     cofmap f = bfmap (\s-> (cofmap f <$>) . s . f)
 
 
@@ -139,27 +137,27 @@ These might make building actor computations more readable:
 > -- | Continue with a new Actor computation step
 > -- 
 > -- > continue = return
-> continue :: Actor i -> Action (Actor i)
+> continue :: Behavior i -> Action (Behavior i)
 > continue = return
 >
 > -- | Actor terminating:
 > --
 > -- > done = return mempty
-> done :: Action (Actor i)
+> done :: Action (Behavior i)
 > done = return mempty
 
 
-An Actor_ is just an Actor that ignores its input. We provide some useful
+A Behavior is just an Behavior that ignores its input. We provide some useful
 functions for building and running such computations:
 
-> -- | An Actor that discards its input
-> type Actor_ = Actor ()
+> -- | A 'Behavior' that discards its input
+> type Behavior_ = Behavior ()
 >
-> -- | Continue with an 'Actor_' computation, lifting it into the current Actor
-> -- input type
+> -- | Continue with a 'Behavior_' computation, lifting it into the current
+> -- 'Behavior' input type
 > --
 > -- > continue_ = continue . cofmap (const ())
-> continue_ :: Actor_ -> Action (Actor i) 
+> continue_ :: Behavior_ -> Action (Behavior i) 
 > continue_ = return . cofmap (const ())
 
 
@@ -371,8 +369,8 @@ Internal function that feeds the actor computation its values:
 
 > -- N.B.: Be careful not to throw away any input here when we hit the null
 > -- behavior:
-> actorRunner :: ActorStream i -> Actor i -> IO ()
-> actorRunner str = maybeDo step . stepActor 
+> actorRunner :: ActorStream i -> Behavior i -> IO ()
+> actorRunner str = maybeDo step . stepBehavior 
 >     where step beh = readChan str >>= action . beh >>= actorRunner str
 
 
@@ -382,10 +380,10 @@ RUNNING
 
 These work in IO and returning () when the actor finishes with done/mzero:
 
-> -- | run an Actor computation in the main thread, returning when the Actor
-> -- exits. Exceptions are not caught:
-> runActorUsing :: ActorStream i -> Actor i -> IO ()
-> runActorUsing str a =  
+> -- | run a 'Behavior' in the main thread, returning when it completes. 
+> -- Exceptions are not caught:
+> runBehaviorUsing :: ActorStream i -> Behavior i -> IO ()
+> runBehaviorUsing str a =  
 >       bracket_
 >         (openStream str)
 >         (closeStream str)
@@ -394,27 +392,27 @@ These work in IO and returning () when the actor finishes with done/mzero:
 
 ...and a variation where no Chan is involved:
 
-> -- | run an Actor_ actor in the main thread, returning when the computation exits
-> runActor_ :: Actor_ -> IO ()
-> runActor_ = maybeDo step . stepActor
->     where step beh = action (beh ()) >>= runActor_
+> -- | run a Behavior_ actor in the main thread, returning when the computation exits
+> runBehavior_ :: Behavior_ -> IO ()
+> runBehavior_ = maybeDo step . stepBehavior
+>     where step beh = action (beh ()) >>= runBehavior_
 
 
 FORKING
 --------
 
 > -- | fork an actor, returning its input 'Mailbox'
-> forkActor :: (MonadIO m)=> Actor i -> m (Mailbox i)
+> forkActor :: (MonadIO m)=> Behavior i -> m (Mailbox i)
 > forkActor a = do
 >     (b,str) <- newChanPair
 >     forkActorUsing str a
 >     return b
 >
 > -- | fork a looping computation which starts immediately. Equivalent to
-> -- launching an 'Actor_' and another 'Actor' that sends an infinite stream of
+> -- launching an 'Behavior_' and another 'Behavior' that sends an infinite stream of
 > -- ()s
-> forkActor_ :: (MonadIO m)=> Actor_ -> m ()
-> forkActor_ = liftIO . void . forkIO . runActor_  
+> forkBehavior_ :: (MonadIO m)=> Behavior_ -> m ()
+> forkBehavior_ = liftIO . void . forkIO . runBehavior_  
 
 
 
@@ -431,7 +429,7 @@ This is how the internal forking procedure below works, w.r.t locks, etc:
 
 > -- | fork an actor that reads from the supplied 'ActorStream'. This blocks,
 > -- if another Actor is reading from the stream, until that Actor exits.
-> forkActorUsing :: (MonadIO m)=> ActorStream i -> Actor i -> m ()
+> forkActorUsing :: (MonadIO m)=> ActorStream i -> Behavior i -> m ()
 > forkActorUsing str ac = liftIO $ void $ do
 >     -- blocks, waiting for other actors to give up control:
 >     acquireStream str
