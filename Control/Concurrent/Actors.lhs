@@ -25,7 +25,6 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , doing
 >     , forkActorDoing_
 >     -- ** Running Actor computations in current IO thread
->     , runBehaviorUsing
 >     , runBehavior_
 >
 >     -- * Supporting classes
@@ -278,9 +277,10 @@ Here are some helpers for dealing with lock types:
 > blockSenders = loggingException "BUG: blockSenders" .
 >                  takeMVar . getSLock . senderLock 
 >
-> closeStream, openStream :: Actor o -> IO ()
+> closeStream :: Actor o -> IO ()
 > closeStream str = blockSenders str >> giveUpStream str
-> openStream str = acquireStream str >> unblockSenders str 
+> --openStream str = acquireStream str >> unblockSenders str 
+
 
 
 HOW WE USE THE LOCKS
@@ -393,18 +393,6 @@ RUNNING
 --------
 
 These work in IO and returning () when the actor finishes with done/mzero:
-
-> -- | run a 'Behavior' in the main thread, returning when it completes. 
-> -- Exceptions are not caught:
-> runBehaviorUsing :: Actor i -> Behavior i -> IO ()
-> runBehaviorUsing str a =  
->       bracket_
->         (openStream str)
->         (closeStream str)
->         (actorRunner str a)
-
-
-...and a variation where no Chan is involved:
 
 > -- | run a Behavior_ actor in the main thread, returning when the computation exits
 > runBehavior_ :: Behavior_ -> IO ()
