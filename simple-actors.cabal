@@ -69,9 +69,10 @@ Library
   Exposed-modules:     Control.Concurrent.Actors
   
   -- Packages needed in order to build this package.
-  Build-depends:      transformers
-                    , base >= 4 && < 5    
-                    , chan-split
+  Build-depends:       base >= 4 && < 5    
+                     , chan-split
+                     , transformers
+                    
   
   ghc-options:        -Wall
 

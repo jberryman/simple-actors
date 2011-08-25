@@ -33,9 +33,9 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >
 >     ) where
 >
+> import Data.Monoid
 > import Control.Monad
 > import Control.Monad.IO.Class
-> import Control.Monad.Trans.Maybe
 > import Control.Concurrent.MVar
 > import Control.Concurrent(forkIO)
 > import Control.Applicative
@@ -71,6 +71,12 @@ variable when tests are run?
 
 TODO
 -----
+    - switch to making Actor a Maybe wrapper, w/ monoid instance
+    - branch and
+        - make name changes to Actor, ActorStream, etc.
+        - remove trivial functions
+        - merge 
+    - merge, fix names in test modules
     - check out what will happen with MVar in mutex in Mailbox
     - testing
 
@@ -92,25 +98,37 @@ Here we define the Actor environment, similar to IO, in which we can launch new
 Actors and send messages to Actors in scope. The implementation is hidden from
 the user to enforce these restrictions.
 
-> -- | The Actor environment in which Actors can be spawned and sent messages.
+> -- | The Action environment in which Actors can be spawned and sent messages.
 > -- .
-> -- The ability to use 'liftIO' here is an abstraction leak, but is convenient
-> -- e.g. to allow Actors to make use of randomness. 
-> newtype Action a = Action { action :: MaybeT IO a }
->                  deriving (Monad, Functor, Applicative, 
->                            Alternative, MonadPlus, MonadIO)
->
-> runAction :: Action a -> IO (Maybe a)
-> runAction = runMaybeT . action
+> -- /N.B./ The ability to use 'liftIO' here is an abstraction leak, but is convenient
+> -- e.g. to allow Actors to make use of a RNG or for library designers.
+> newtype Action a = Action { action :: IO a }
+>                  deriving (Monad, Functor, Applicative, MonadIO)
 
 
 First we define an Actor: a function that takes an input, maybe returning a new
 actor:
 
-> newtype Actor i = Actor { stepActor :: i -> Action (Actor i) }
+> newtype Actor i = Actor { stepActor :: Maybe (BehaviorStep i) }
+>                 --deriving (Applicative,Alternative)
+>
+> type BehaviorStep i = i -> Action (Actor i)
+>
+> -- behavior fmap for cleaning up definitions below:
+> bfmap :: (BehaviorStep i -> BehaviorStep i') -> Actor i -> Actor i'
+> bfmap f = Actor . fmap f . stepActor
+>
+> -- | 'mempty' is the null 'Behavior' and 'mappend' provides a way of sequencing
+> -- behaviors; the second takes over when the first finishes.
+> instance Monoid (Actor i) where
+>     mempty = Actor Nothing
+>     mappend (Actor Nothing) a2 = a2
+>     mappend a1 a2 = bfmap mappendChild a1
+>         where mappendChild = fmap $ fmap (`mappend` a2)
 > 
 > instance Cofunctor Actor where
->     cofmap f a = Actor (fmap (cofmap f) . stepActor a . f)
+>     --cofmap f a = Actor (fmap (cofmap f) . stepActor a . f)
+>     cofmap f = bfmap (\s-> (cofmap f <$>) . s . f)
 
 
 TRIVIAL HELPERS
@@ -126,9 +144,9 @@ These might make building actor computations more readable:
 >
 > -- | Actor terminating:
 > --
-> -- > done = mzero
+> -- > done = return mempty
 > done :: Action (Actor i)
-> done = mzero
+> done = return mempty
 
 
 An Actor_ is just an Actor that ignores its input. We provide some useful
@@ -352,10 +370,14 @@ RUNNING AND FORKING ACTORS
 Internal function that feeds the actor computation its values:
 
 > actorRunner :: ActorStream i -> Actor i -> IO ()
+> actorRunner str = maybeDo step . stepActor 
+>     where step beh = readChan str >>= action . beh >>= actorRunner str
+> {-
 > actorRunner str = loop
 >     where loop a = readChan str >>= 
 >                     runAction . stepActor a >>= 
 >                      maybeDo loop 
+> -}
 
 
 RUNNING
@@ -377,8 +399,8 @@ These work in IO and returning () when the actor finishes with done/mzero:
 
 > -- | run an Actor_ actor in the main thread, returning when the computation exits
 > runActor_ :: Actor_ -> IO ()
-> runActor_ l = runAction (stepActor l ()) >>= 
->                maybeDo runActor_ 
+> runActor_ = maybeDo step . stepActor
+>     where step beh = action (beh ()) >>= runActor_
 
 
 FORKING
