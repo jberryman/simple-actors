@@ -8,8 +8,8 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >       Behavior(..)
 >     , Behavior_
 >     -- ** building @Behaviors@
->     , continue_
->     , continue
+>     , beh
+>     , beh_
 >     , done
 >
 >     -- * Actor model actions
@@ -84,9 +84,6 @@ variable when tests are run?
 TODO
 -----
     - branch and
-        - look into liftUnit and maybe move it into Cofunctor
-        - remove trivial functions
-        - add a continue function that works on a bare (i -> Action...)
         - merge 
     - merge, fix names in test modules
     - check out what will happen with MVar in mutex in Mailbox
@@ -156,34 +153,33 @@ an input, performs some Actions and returns the next Behavior:
 TRIVIAL HELPERS
 ----------------
 
+A Behavior is just an Behavior that ignores its input. We provide some useful
+functions for building and running such computations:
+
+> -- | A 'Behavior' that discards its input
+> type Behavior_ = Behavior ()
+
+
 These might make building actor computations more readable:
 
-> -- | Continue with a new Actor computation step
-> -- 
-> -- > continue = return
-> continue :: Behavior i -> Action (Behavior i)
-> continue = return
->
 > -- | Behavior termination
 > --
 > -- > done = return mempty
 > done :: Action (Behavior i)
 > done = return mempty
 
-
-A Behavior is just an Behavior that ignores its input. We provide some useful
-functions for building and running such computations:
-
-> -- | A 'Behavior' that discards its input
-> type Behavior_ = Behavior ()
->
-> -- | Continue with a 'Behavior_' computation, lifting it into the current
-> -- 'Behavior' input type
+> -- | Wrap a 'Behavior'. Useful for readability.
 > --
-> -- > continue_ = continue . cofmap (const ())
-> continue_ :: Behavior_ -> Action (Behavior i) 
-> continue_ = return . cofmap (const ())
+> -- > beh = Behavior . Just
+> beh :: (i -> Action (Behavior i)) -> Behavior i
+> beh = Behavior . Just
 
+> -- | Wrap a 'Behavior_', lifting the input type to a polymorphic value,
+> -- meaning it can be returned as the next behavior by a 'Behavior' of any type
+> --
+> -- > beh_ = cofmap (const ()) . beh . const
+> beh_ :: Action Behavior_ -> Behavior i
+> beh_ = cofmap (const ()) . beh . const
 
 
 MESSAGE CHANNELS
@@ -414,7 +410,7 @@ Internal function that feeds the actor computation its values:
 > -- behavior:
 > actorRunner :: Actor i -> Behavior i -> IO ()
 > actorRunner str = maybeDo step . stepBehavior 
->     where step beh = readChan str >>= action . beh >>= actorRunner str
+>     where step b = readChan str >>= action . b >>= actorRunner str
 
 
 
@@ -426,7 +422,7 @@ These work in IO and returning () when the actor finishes with done/mzero:
 > -- | run a Behavior_ in the main thread, returning when the computation exits
 > runBehavior_ :: Behavior_ -> IO ()
 > runBehavior_ = maybeDo step . stepBehavior
->     where step beh = action (beh ()) >>= runBehavior_
+>     where step b = action (b ()) >>= runBehavior_
 
 
 FORKING
