@@ -4,27 +4,40 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 
 > module Control.Concurrent.Actors (
 >
->     -- * Actor computations
+>     -- * Actor behaviors
 >       Behavior(..)
->     , Action()
->     -- ** Type and Function synonyms for building @Behaviors@
 >     , Behavior_
+>     -- ** building @Behaviors@
 >     , continue_
 >     , continue
 >     , done
 >
->     -- * Message passing and IO
->     , send
->     -- ** Mailbox / Actor pair
->     , forkActor
+>     -- * Actor model actions
+>     , Action()
+> {- | 
+> In the 'Action' monad, actors are permitted to:
+> 
+>        - 'send' messages to actors whose 'Mailbox' they know about
+> 
+>        - spawn new concurrent actors
+>  
+> -}
+>     -- ** Message passing
 >     , Mailbox
+>     , send
+>     -- ** Actor creation and Behavior initialization
+> {- | 
+> The spawning of a new concurrent 'Actor' can be done separately from the
+> initialization of the Actor\'s 'Behavior'. Otherwise defining
+> mutually-communicating actors would not be possible. To spawn an actor and
+> initialize its @Behavior@ in one go, you can use 'forkActorDoing'.
+> -}
 >     , Actor
->
->     -- * Running Actors
->     , forkActorDoing
+>     , forkActor
 >     , doing
+>     -- *** Utility functions
+>     , forkActorDoing
 >     , forkActorDoing_
->     -- ** Running Actor computations in current IO thread
 >     , runBehavior_
 >
 >     -- * Supporting classes
@@ -71,9 +84,9 @@ variable when tests are run?
 TODO
 -----
     - branch and
-        - make name changes
-        - fix module organization and documentation
+        - look into liftUnit and maybe move it into Cofunctor
         - remove trivial functions
+        - add a continue function that works on a bare (i -> Action...)
         - merge 
     - merge, fix names in test modules
     - check out what will happen with MVar in mutex in Mailbox
@@ -97,10 +110,10 @@ Here we define the Actor environment, similar to IO, in which we can launch new
 Actors and send messages to Actors in scope. The implementation is hidden from
 the user to enforce these restrictions.
 
-> -- | The Action environment in which Actors can be spawned and sent messages.
+> -- | The Action environment in which 'Actors' can be spawned and sent messages.
 > -- .
 > -- /N.B./ The ability to use 'liftIO' here is an abstraction leak, but is convenient
-> -- e.g. to allow Actors to make use of a RNG or for library designers.
+> -- e.g. to allow Actors to make use of a RNG or for library designers, etc.
 > newtype Action a = Action { action :: IO a }
 >                  deriving (Monad, Functor, Applicative, MonadIO)
 
@@ -108,6 +121,17 @@ the user to enforce these restrictions.
 First we define a Behavior: either the null behavior, or a function that takes 
 an input, performs some Actions and returns the next Behavior:
 
+> -- | An actor works by:
+> --
+> --     1. receiving an input message
+> --
+> --     2. performing some 'Action's such as sending messages or spawning other
+> --         'Actors'
+> --
+> --     3. returning the Behavior to be used for the next input
+> -- 
+> -- In our implementation we allow the null behavior, 'mempty', which can be
+> -- used to end an actor computation.
 > newtype Behavior i = Behavior { stepBehavior :: Maybe (BehaviorStep i) }
 >                 --deriving (Applicative,Alternative)
 >
@@ -140,7 +164,7 @@ These might make building actor computations more readable:
 > continue :: Behavior i -> Action (Behavior i)
 > continue = return
 >
-> -- | Actor terminating:
+> -- | Behavior termination
 > --
 > -- > done = return mempty
 > done :: Action (Behavior i)
@@ -176,19 +200,23 @@ output chan types can be a Functor.
 Finally, having a seperate Chan type that can only be read in IO makes intended
 functionality of the library more explicit.
 
-> -- | The input portion of our buffered message-passing medium. Actors can 
-> -- send messages to a Mailbox, where they will supply a corresponding
-> -- 'Actor'
-> data Mailbox i = Mailbox { 
->                      inChan :: InChan i
->                    , senderLockMutex :: SenderLockMutex 
->                    }
+> -- | A @Mailbox@ allows messages to be passed asynchronously to the
+> -- corresponding 'Actor' where they can be processed by a 'Behavior'. 
+>
+> -- A Mailbox is locked unless the corresponding Actor has an active Behavior.
+> -- This means for instance that a 'send' to a Mailbox of an uninitialized
+> -- Actor will block, possibly indefinitely (in which case the 'send'ing actor
+> -- will be quietly garbage collected).
+> data Mailbox i = Mailbox { inChan :: InChan i                  
+>                          , senderLockMutex :: SenderLockMutex 
+>                          }
+>                    
 >
 > -- | A token representing a forked concurrent actor, which might be idle or
 > -- running a 'Behavior' that is processing inputs sent to its 'Mailbox'
 > --
 > -- /IYI:/ The only thing we are allowed to do to an @Actor@ directly is to enqueue
-> -- 'Behaviors' (see 'foo'). This separation of actor initialization and
+> -- 'Behaviors' (see 'doing'). This separation of actor initialization and
 > -- behavior enqueueing is necessary to allow e.g. two actors access each to
 > -- the other\'s Mailbox
 > data Actor o = Actor { outChan :: OutChan o
@@ -308,7 +336,7 @@ token corresponding to an actor running or idling in the ether. Furthermore,
 this doesn't actual do a forkIO, which we treat as an unimportant implementation
 detail.
 
-> -- | Create a new concurrent 'Actor', returning its 'Mailbox'. Using 'foo' to
+> -- | Create a new concurrent 'Actor', returning its 'Mailbox'. Using 'doing' to
 > -- initialize a 'Behavior' for the @Actor@ will cause it to unlock its
 > -- 'Mailbox' and begin accepting and processing inputs.
 > forkActor :: (MonadIO m)=> m (Mailbox a, Actor a)
@@ -338,13 +366,14 @@ SEND FUNCTIONS
 ---------------
 
 > -- | Send a message asynchronously. This can be used to send messages to other
-> -- Actors via a 'Mailbox', or used as a means of output from the Actor system.
+> -- Actors via a 'Mailbox', or used as a means of output from the Actor system
+> -- to IO.
 > -- .
 > -- /Sends to a Mailbox/:
 > -- This does not wait for the Actor to receive the message before returning, 
-> -- but will block while no Actor is processing the corresponding Actor;
-> -- If the runtime determines that a new Actor will never take over, an
-> -- exception will be raised.
+> -- but will block while no Behavior is active in the corresponding Actor. The
+> -- runtime will notice deadlocks and quietly garbage collect senders to a dead
+> -- actor.
 > -- . 
 > -- > send b = liftIO . writeChan b
 > send :: (MonadIO m, WritableChan c)=> c a -> a -> m ()
@@ -394,7 +423,7 @@ RUNNING
 
 These work in IO and returning () when the actor finishes with done/mzero:
 
-> -- | run a Behavior_ actor in the main thread, returning when the computation exits
+> -- | run a Behavior_ in the main thread, returning when the computation exits
 > runBehavior_ :: Behavior_ -> IO ()
 > runBehavior_ = maybeDo step . stepBehavior
 >     where step beh = action (beh ()) >>= runBehavior_
@@ -403,7 +432,7 @@ These work in IO and returning () when the actor finishes with done/mzero:
 FORKING
 --------
 
-> -- | fork an actor, returning its input 'Mailbox'
+> -- | Fork an actor 'doing' a 'Behavior' directly, returning its input 'Mailbox'
 > forkActorDoing :: (MonadIO m)=> Behavior i -> m (Mailbox i)
 > forkActorDoing a = do
 >     (b,str) <- forkActor
@@ -412,7 +441,7 @@ FORKING
 >
 > -- | fork a looping computation which starts immediately. Equivalent to
 > -- launching an 'Behavior_' and another 'Behavior' that sends an infinite stream of
-> -- ()s
+> -- ()s to the former.
 > forkActorDoing_ :: (MonadIO m)=> Behavior_ -> m ()
 > forkActorDoing_ = liftIO . void . forkIO . runBehavior_  
 
