@@ -181,7 +181,7 @@ These might make building actor computations more readable:
 > --
 > -- > behavior_ = cofmap (const ()) . behavior . const
 > behavior_ :: Action Behavior_ -> Behavior i
-> behavior_ = cofmap (const ()) . beh . const
+> behavior_ = cofmap (const ()) . behavior . const
 
 
 MESSAGE CHANNELS
