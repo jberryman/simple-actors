@@ -14,24 +14,24 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >
 >     -- * Actor model actions
 >     , Action()
-> {- | 
-> In the 'Action' monad, actors are permitted to:
+>     {- | 
+>     In the 'Action' monad, actors are permitted to:
 > 
->        - 'send' messages to actors whose 'Mailbox' they know about
+>            - 'send' messages to actors whose 'Mailbox' they know about
 > 
->        - spawn new concurrent actors
+>            - spawn new concurrent actors with 'forkActor' et al.
 >  
-> -}
+>     -}
 >     -- ** Message passing
 >     , Mailbox
 >     , send
 >     -- ** Actor creation and Behavior initialization
-> {- | 
-> The spawning of a new concurrent 'Actor' can be done separately from the
-> initialization of the Actor\'s 'Behavior'. Otherwise defining
-> mutually-communicating actors would not be possible. To spawn an actor and
-> initialize its @Behavior@ in one go, you can use 'forkActorDoing'.
-> -}
+>     {- | 
+>     The spawning of a new concurrent 'Actor' can be done separately from the
+>     initialization of the Actor\'s 'Behavior'. Otherwise defining
+>     mutually-communicating actors would not be possible. To spawn an actor and
+>     initialize its @Behavior@ in one go, you can use 'forkActorDoing'.
+>     -}
 >     , Actor
 >     , forkActor
 >     , doing
@@ -83,9 +83,8 @@ variable when tests are run?
 
 TODO
 -----
-    - branch and
         - merge 
-    - merge, fix names in test modules
+    - , fix names in test modules
     - check out what will happen with MVar in mutex in Mailbox
     - testing
 
@@ -93,6 +92,8 @@ TODO
         - examples
 
     - test performance
+    - investigate ways of positively influencing thread scheduling based on
+       actor work agenda 
     - export some useful Actors:
         - 'loop' which keeps consuming
         - function returning an actor to "load balance" inputs over multiple

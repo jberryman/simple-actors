@@ -20,18 +20,6 @@ Description:         simple-actors is a library of concurrency primitives for
                      Model. Computations are structured as "Actors" which take a
                      single input value, perform some 'Action's, and return the
                      Actor to process the next input message it receives.
-                     .
-                     /CHANGELOG/: 0.2.0:
-                     .
-                     - Loop renamed Actor_
-                     - support passing synchronous messages
-                     - ActorM renamed Action
-                     - Mailbox split into Mailbox/ActorStream pairs
-                     - blocking on sends to non-existent actor, or forking on in-use 'ActorStream'
-                     - catch blocked MVar exceptions. make Actor exit.
-                     - Functor / Cofunctor instances for Mailbox/*Stream pairs
-                     - sendSync returns True on success
-                     .
 
 -- The license under which the package is released.
 License:             BSD3
