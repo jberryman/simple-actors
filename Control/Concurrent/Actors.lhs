@@ -8,8 +8,8 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >       Behavior(..)
 >     , Behavior_
 >     -- ** building @Behaviors@
->     , beh
->     , beh_
+>     , behavior
+>     , behavior_
 >     , done
 >
 >     -- * Actor model actions
@@ -83,15 +83,15 @@ variable when tests are run?
 
 TODO
 -----
-        - merge 
-    - , fix names in test modules
+    - fix names in test modules
     - check out what will happen with MVar in mutex in Mailbox
     - testing
 
     - better documentation:
         - examples
 
-    - test performance
+    - test performance vs. straight Chans, etc.
+    - test out overhead of our various locks
     - investigate ways of positively influencing thread scheduling based on
        actor work agenda 
     - export some useful Actors:
@@ -169,18 +169,19 @@ These might make building actor computations more readable:
 > done :: Action (Behavior i)
 > done = return mempty
 
-> -- | Wrap a 'Behavior'. Useful for readability.
+> -- | Wrap a 'Behavior'. Useful for readability to avoid lambda expressions.
+> -- See also 'behavior_'.
 > --
-> -- > beh = Behavior . Just
-> beh :: (i -> Action (Behavior i)) -> Behavior i
-> beh = Behavior . Just
+> -- > behavior = Behavior . Just
+> behavior :: (i -> Action (Behavior i)) -> Behavior i
+> behavior = Behavior . Just
 
 > -- | Wrap a 'Behavior_', lifting the input type to a polymorphic value,
 > -- meaning it can be returned as the next behavior by a 'Behavior' of any type
 > --
-> -- > beh_ = cofmap (const ()) . beh . const
-> beh_ :: Action Behavior_ -> Behavior i
-> beh_ = cofmap (const ()) . beh . const
+> -- > behavior_ = cofmap (const ()) . behavior . const
+> behavior_ :: Action Behavior_ -> Behavior i
+> behavior_ = cofmap (const ()) . beh . const
 
 
 MESSAGE CHANNELS
