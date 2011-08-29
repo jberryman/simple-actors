@@ -83,12 +83,14 @@ variable when tests are run?
 
 TODO
 -----
-    - fix names in test modules
-    - check out what will happen with MVar in mutex in Mailbox
-    - testing
+    - some more involved / realistic tests
+    - add any necessary utility functions
+    - get complete code coverage into simple test module
+    - release 0.2.0 !
 
     - better documentation:
         - examples
+    - structured declarative and unit tests
 
     - test performance vs. straight Chans, etc.
     - test out overhead of our various locks
