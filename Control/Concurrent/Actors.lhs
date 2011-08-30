@@ -4,27 +4,31 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 
 > module Control.Concurrent.Actors (
 >
+>
 >     -- * Actor behaviors
 >       Behavior(..)
 >     , Behavior_
+>
 >     -- ** building @Behaviors@
->     , behavior
->     , behavior_
->     , done
+>     , ignoring
+>
 >
 >     -- * Actor model actions
->     , Action()
 >     {- | 
 >     In the 'Action' monad, actors are permitted to:
 > 
 >            - 'send' messages to actors whose 'Mailbox' they know about
 > 
 >            - spawn new concurrent actors with 'forkActor' et al.
->  
+>     
+>     ...finally returning the 'Behavior' to be applied to the next input.
 >     -}
+>     , Action()
+>
 >     -- ** Message passing
 >     , Mailbox
 >     , send
+>
 >     -- ** Actor creation and Behavior initialization
 >     {- | 
 >     The spawning of a new concurrent 'Actor' can be done separately from the
@@ -35,10 +39,12 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , Actor
 >     , forkActor
 >     , doing
+>
 >     -- *** Utility functions
 >     , forkActorDoing
 >     , forkActorDoing_
 >     , runBehavior_
+>
 >
 >     -- * Supporting classes
 >     , module Data.Cofunctor 
@@ -87,6 +93,8 @@ TODO
         - binary tree
     - add any necessary utility functions
     - get complete code coverage into simple test module
+    - consider removing 'loggingException's, replace with 'error' call when 
+       programmer error is encountered.
     - release 0.2.0 !
 
     - better documentation:
@@ -133,27 +141,36 @@ an input, performs some Actions and returns the next Behavior:
 > --
 > --     3. returning the Behavior to be used for the next input
 > -- 
-> -- In our implementation we allow the null behavior, 'mempty', which can be
-> -- used to end an actor computation.
-> newtype Behavior i = Behavior { stepBehavior :: Maybe (BehaviorStep i) }
+> -- In our implementation a @Behavior@ is either @Taking@ input and returning
+> -- the next @Behavior@, or it puts the 'Actor' in an @Idle@ state when done.
+> data Behavior i = Taking (BehaviorStep i)
+>                 | Idle
+> --newtype Behavior i = Behavior { stepBehavior :: Maybe (BehaviorStep i) }
 >                 --deriving (Applicative,Alternative)
 >
 > type BehaviorStep i = i -> Action (Behavior i)
 >
-> -- behavior fmap for cleaning up definitions below:
-> bfmap :: (BehaviorStep i -> BehaviorStep i') -> Behavior i -> Behavior i'
-> bfmap f = Behavior . fmap f . stepBehavior
+
+Behavior helpers:
+
 >
+> maybeDo :: (BehaviorStep i -> IO ()) -> Behavior i -> IO ()
+> maybeDo f (Taking c) = f c
+> maybeDo _ _          = return ()
+
+
+Useful instances:
+
 > -- | 'mempty' is the null 'Behavior' and 'mappend' provides a way of sequencing
 > -- behaviors; the second takes over when the first finishes.
 > instance Monoid (Behavior i) where
->     mempty = Behavior Nothing
->     mappend (Behavior Nothing) a2 = a2
->     mappend a1 a2 = bfmap mappendChild a1
->         where mappendChild = fmap $ fmap (`mappend` a2)
+>     mempty = Idle
+>     mappend (Taking c) a2 = Taking $ (fmap (`mappend` a2)) <$> c
+>     mappend _          a2 = a2
 > 
 > instance Cofunctor Behavior where
->     cofmap f = bfmap (\s-> (cofmap f <$>) . s . f)
+>     cofmap f (Taking c) = Taking $ fmap (cofmap f) . c . f
+>     cofmap _ _          = Idle
 
 
 TRIVIAL HELPERS
@@ -168,25 +185,11 @@ functions for building and running such computations:
 
 These might make building actor computations more readable:
 
-> -- | Behavior termination
+> -- | Helper for building polymorphic 'Behavior's that ignore their input
 > --
-> -- > done = return mempty
-> done :: Action (Behavior i)
-> done = return mempty
-
-> -- | Wrap a 'Behavior'. Useful for readability to avoid lambda expressions.
-> -- See also 'behavior_'.
-> --
-> -- > behavior = Behavior . Just
-> behavior :: (i -> Action (Behavior i)) -> Behavior i
-> behavior = Behavior . Just
-
-> -- | Wrap a 'Behavior_', lifting the input type to a polymorphic value,
-> -- meaning it can be returned as the next behavior by a 'Behavior' of any type
-> --
-> -- > behavior_ = cofmap (const ()) . behavior . const
-> behavior_ :: Action Behavior_ -> Behavior i
-> behavior_ = cofmap (const ()) . behavior . const
+> -- > ignoring = Taking . const
+> ignoring :: Action (Behavior i) -> Behavior i
+> ignoring = Taking . const
 
 
 MESSAGE CHANNELS
@@ -416,7 +419,7 @@ Internal function that feeds the actor computation its values:
 > -- N.B.: Be careful not to throw away any input here when we hit the null
 > -- behavior:
 > actorRunner :: Actor i -> Behavior i -> IO ()
-> actorRunner str = maybeDo step . stepBehavior 
+> actorRunner str = maybeDo step
 >     where step b = readChan str >>= action . b >>= actorRunner str
 
 
@@ -428,7 +431,7 @@ These work in IO and returning () when the actor finishes with done/mzero:
 
 > -- | run a Behavior_ in the main thread, returning when the computation exits
 > runBehavior_ :: Behavior_ -> IO ()
-> runBehavior_ = maybeDo step . stepBehavior
+> runBehavior_ = maybeDo step 
 >     where step b = action (b ()) >>= runBehavior_
 
 
@@ -479,11 +482,6 @@ This is how the internal forking procedure below works, w.r.t locks, etc:
 
 TESTING AND HELPERS:
 =====================
-
-
-> maybeDo :: (Monad m) => (a -> m ()) -> Maybe a -> m ()
-> maybeDo = maybe (return ())
-
 
 
 Occurences of these should turn into "return ()" when the CPP sets 
