@@ -84,6 +84,7 @@ variable when tests are run?
 TODO
 -----
     - some more involved / realistic tests
+        - binary tree
     - add any necessary utility functions
     - get complete code coverage into simple test module
     - release 0.2.0 !
@@ -94,6 +95,8 @@ TODO
 
     - test performance vs. straight Chans, etc.
     - test out overhead of our various locks
+    - some sort of exception handling technique via Actors
+        (look at enumerator package)
     - investigate ways of positively influencing thread scheduling based on
        actor work agenda 
     - export some useful Actors:
