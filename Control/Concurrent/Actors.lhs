@@ -130,7 +130,23 @@ the user to enforce these restrictions.
 
 
 First we define a Behavior: either the null behavior, or a function that takes 
-an input, performs some Actions and returns the next Behavior:
+an input, performs some Actions and returns the next Behavior.
+
+The constructor names are meant to connote the corresponding state of the Actor.
+Further, I hope the name 'Recv' will also make for somewhat more readable
+lambdas in Behavior definitions, as in:
+
+    behaviorFoo a b = Recv $ \i -> do
+        send b (i+1)
+        send a 'x'
+        return (behaviorFoo a b)
+
+where the first line of the definition can be read:
+
+    "Receive 'i' & do ..."
+
+YMMV
+
 
 > -- | An actor works by:
 > --
@@ -141,22 +157,22 @@ an input, performs some Actions and returns the next Behavior:
 > --
 > --     3. returning the Behavior to be used for the next input
 > -- 
-> -- In our implementation a @Behavior@ is either @Taking@ input and returning
-> -- the next @Behavior@, or it puts the 'Actor' in an @Idle@ state when done.
-> data Behavior i = Taking (BehaviorStep i)
+> -- In our implementation a @Behavior@ is either null or is
+> -- a function that takes an input, performs some 'Action's, and
+> -- returns the next @Behavior@.
+> --
+> -- 
+> data Behavior i = Recv (BehaviorStep i)
 >                 | Idle
-> --newtype Behavior i = Behavior { stepBehavior :: Maybe (BehaviorStep i) }
->                 --deriving (Applicative,Alternative)
 >
 > type BehaviorStep i = i -> Action (Behavior i)
 >
 
 Behavior helpers:
 
->
 > maybeDo :: (BehaviorStep i -> IO ()) -> Behavior i -> IO ()
-> maybeDo f (Taking c) = f c
-> maybeDo _ _          = return ()
+> maybeDo f (Recv c) = f c
+> maybeDo _ _        = return ()
 
 
 Useful instances:
@@ -165,12 +181,12 @@ Useful instances:
 > -- behaviors; the second takes over when the first finishes.
 > instance Monoid (Behavior i) where
 >     mempty = Idle
->     mappend (Taking c) a2 = Taking $ (fmap (`mappend` a2)) <$> c
->     mappend _          a2 = a2
+>     mappend (Recv c) a2 = Recv $ (fmap (`mappend` a2)) <$> c
+>     mappend _        a2 = a2
 > 
 > instance Cofunctor Behavior where
->     cofmap f (Taking c) = Taking $ fmap (cofmap f) . c . f
->     cofmap _ _          = Idle
+>     cofmap f (Recv c) = Recv $ fmap (cofmap f) . c . f
+>     cofmap _ _        = Idle
 
 
 TRIVIAL HELPERS
@@ -187,9 +203,9 @@ These might make building actor computations more readable:
 
 > -- | Helper for building polymorphic 'Behavior's that ignore their input
 > --
-> -- > ignoring = Taking . const
+> -- > ignoring = Recv . const
 > ignoring :: Action (Behavior i) -> Behavior i
-> ignoring = Taking . const
+> ignoring = Recv . const
 
 
 MESSAGE CHANNELS
