@@ -7,9 +7,13 @@ import Control.Concurrent(forkIO,threadDelay)
 import Control.Concurrent.MVar
 import Control.Exception
 import Data.Cofunctor
+import Control.Applicative
+import Control.Monad.IO.Class
+import System.Random
 
 main = do
-    forkActorQueueTest
+    --forkActorQueueTest
+    binaryTreeTest
 
 ------------------------
 -- informal test that forkLocking is working:
@@ -45,7 +49,7 @@ forkActorQueueTest = do
 -- TODO: consider if we should export a BehaviorStep type synonym. Alternatively
 -- we might do: UnwrappedBehavior, or something to that effect
 sendInputTo :: Chan Int -> Int -> Behavior Int
-sendInputTo c n = Taking $ \i-> do
+sendInputTo c n = Recv $ \i-> do
     send c i
     -- TODO: Consider defining:
     -- elseReturn b a = if b then done else return a
@@ -65,11 +69,51 @@ senderTo n c = ignoring $ do
 ------------------------
 -- A kind of "living binary tree"
 
-binaryTree = do
-    output <- newChan
-    m <- forkActorDoing $ treeNode
-    undefined
+-- we support an add operation that fills an MVar with a Bool set to True if the
+-- Int passed was added to the tree. False if it was already present:
+type Message = (Int, MVar Bool)
+
+type Node = Mailbox Message
+type RootNode = Node
+
+addValue :: Int -> RootNode -> IO Bool
+addValue a nd = do
+    v <- newEmptyMVar
+    send nd (a,v)
+    takeMVar v
+
+treeNode :: Maybe Node -> Maybe Node -> Int -> Behavior Message
+treeNode l r a = Recv $ \m@(a',v)->
+
+  let addToChild = fmap Just . maybe newNode passToChild
+      newNode = send v True >> initTree a'
+      passToChild c = c <$ send c m
+
+   in case compare a' a of
+           -- signal that node was present and return:
+           EQ -> send v False >> return (treeNode l r a)
+           -- return new behavior closed over possibly newly-created child nodes:
+           LT -> (\l'-> treeNode l' r a) <$> addToChild l
+           GT -> (\r'-> treeNode l r' a) <$> addToChild r
 
 
-treeNode = undefined
+
+-- create a new tree from an initial element. used to make branches internally
+initTree :: MonadIO m=> Int -> m Node
+initTree = forkActorDoing . treeNode Nothing Nothing
+    
+
+-- TODO: TURN THIS INTO AN AUTOMATED TEST. ALSO MODIFY SO THAT ADDS ARE ACTUALLY
+-- CONCURRENT:
+binaryTreeTest = do
+    -- create a new tree from an initial value
+    root <- initTree 0
+    -- a random stream of vlues (-100,100):
+    str <- randomRs (-100,100) <$> getStdGen  
+    -- add them into the tree, returning a list of the results:
+    bs <- mapM (`addValue` root) $ take 100 str
+
+    -- show:
+    mapM (putStrLn . show) $ zip str bs
+
 
