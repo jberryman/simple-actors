@@ -76,12 +76,22 @@ type Message = (Int, MVar Bool)
 type Node = Mailbox Message
 type RootNode = Node
 
-addValue :: Int -> RootNode -> IO Bool
-addValue a nd = do
+addValue :: MonadIO m=> Int -> RootNode -> m Bool
+addValue a nd = liftIO $ do
     v <- newEmptyMVar
     send nd (a,v)
     takeMVar v
 
+
+
+-- This is the Behavior of interest that defines our tree node actor's behavior.
+-- It is closed over Maybe its left and right child nodes, as well as its own
+-- node value.
+-- On receiving a message it compares the enclosed value to its own value and
+-- either sends it down toa child node (creating if doesn't exist) or if equal
+-- to the current node, report back False to the passed MVar, indicating that
+-- the value was already present.
+-- The behavior then recurses, closing over any newly created child node.
 treeNode :: Maybe Node -> Maybe Node -> Int -> Behavior Message
 treeNode l r a = Recv $ \m@(a',v)->
 
@@ -103,17 +113,42 @@ initTree :: MonadIO m=> Int -> m Node
 initTree = forkActorDoing . treeNode Nothing Nothing
     
 
--- TODO: TURN THIS INTO AN AUTOMATED TEST. ALSO MODIFY SO THAT ADDS ARE ACTUALLY
--- CONCURRENT:
+
+----
+---- The following is all code to test the binary tree actor we implemented above:
+----
+
 binaryTreeTest = do
+    -- all output by forked actors goes into this Chan:
+    output <- newChan
     -- create a new tree from an initial value
     root <- initTree 0
-    -- a random stream of vlues (-100,100):
-    str <- randomRs (-100,100) <$> getStdGen  
-    -- add them into the tree, returning a list of the results:
-    bs <- mapM (`addValue` root) $ take 100 str
+    -- FORK 10 WRITERS TO THE TREE
+    mapM_ (forkActorDoing_ . writeRandsTo root output 1000) ['a'..'z']
+    -- print ourput from chan:
+    getChanContents output >>= mapM (putStrLn . show) . take (26*1000)
 
-    -- show:
-    mapM (putStrLn . show) $ zip str bs
+
+
+-- Lift an RNG to an Action. A non-abstraction-breaking use of liftIO here, IMHO
+randInt :: Action Int
+randInt = liftIO $ randomRIO (-5000,5000) 
+
+
+type Name = Char
+type OutMessage = (Name,Bool,Int)
+
+
+-- we also use an Actor to write our values to the tree
+writeRandsTo :: RootNode -> Chan OutMessage -> Int -> Name -> Behavior_
+writeRandsTo _    _   0 _    = Idle
+writeRandsTo root out n name = ignoring $ do
+    -- a random stream of ints:
+    i <- randInt
+    -- add them into the tree, returning a list of the results:
+    b <- i `addValue` root
+    -- report back input, result, and the name of this actor:
+    send out (name,b,i)
+    return $ writeRandsTo root out (n-1) name
 
 

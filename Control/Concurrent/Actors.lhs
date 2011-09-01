@@ -111,6 +111,7 @@ TODO
         - 'loop' which keeps consuming
         - function returning an actor to "load balance" inputs over multiple
           actors
+        - an actor that sends a random stream?
 
 
 ACTORS AND THE ACTOR ENVIRONMENT
@@ -462,7 +463,7 @@ FORKING
 >     return b
 >
 > -- | fork a looping computation which starts immediately. Equivalent to
-> -- launching an 'Behavior_' and another 'Behavior' that sends an infinite stream of
+> -- launching a 'Behavior_' and another 'Behavior' that sends an infinite stream of
 > -- ()s to the former.
 > forkActorDoing_ :: (MonadIO m)=> Behavior_ -> m ()
 > forkActorDoing_ = liftIO . void . forkIO . runBehavior_  
