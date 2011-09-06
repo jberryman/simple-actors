@@ -10,7 +10,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , Behavior_
 >
 >     -- ** building @Behaviors@
->     , ignoring
+>     , recv_
 >
 >
 >     -- * Actor model actions
@@ -204,9 +204,9 @@ These might make building actor computations more readable:
 
 > -- | Helper for building polymorphic 'Behavior's that ignore their input
 > --
-> -- > ignoring = Recv . const
-> ignoring :: Action (Behavior i) -> Behavior i
-> ignoring = Recv . const
+> -- > recv_ = Recv . const
+> recv_ :: Action (Behavior i) -> Behavior i
+> recv_ = Recv . const
 
 
 MESSAGE CHANNELS

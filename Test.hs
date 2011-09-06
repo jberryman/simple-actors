@@ -59,7 +59,7 @@ sendInputTo c n = Recv $ \i-> do
              else sendInputTo c (n-1)
 
 senderTo :: Int -> Mailbox Int -> Behavior_
-senderTo n c = ignoring $ do
+senderTo n c = recv_ $ do
     send c n
     return $ if n == 1
              then Idle
@@ -142,7 +142,7 @@ type OutMessage = (Name,Bool,Int)
 -- we also use an Actor to write our values to the tree
 writeRandsTo :: RootNode -> Chan OutMessage -> Int -> Name -> Behavior_
 writeRandsTo _    _   0 _    = Idle
-writeRandsTo root out n name = ignoring $ do
+writeRandsTo root out n name = recv_ $ do
     -- a random stream of ints:
     i <- randInt
     -- add them into the tree, returning a list of the results:
