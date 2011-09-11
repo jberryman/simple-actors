@@ -15,11 +15,11 @@ Synopsis:            A library for more structured concurrent programming, based
 Homepage:            http://coder.bsimmons.name/blog/2011/05/simple-actors-a-simple-actor-model-concurrency-library/
 
 -- A longer description of the package
-Description:         simple-actors is a library of concurrency primitives for
+Description:         simple-actors is an EDSL-style library for writing
                      more structured concurrent programs, based on the Actor 
-                     Model. Computations are structured as "Actors" which take a
+                     Model. Computations are structured as "Behaviors" which take a
                      single input value, perform some 'Action's, and return the
-                     Actor to process the next input message it receives.
+                     Behavior to process the next input message it receives.
 
 -- The license under which the package is released.
 License:             BSD3
@@ -65,7 +65,8 @@ Library
   ghc-options:        -Wall
 
   -- Modules not exported by this package.
-  -- Other-modules:       
+  Other-modules:       Control.Concurrent.Actors.Chans
+                     , Control.Concurrent.Actors.Behavior
   
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   -- Build-tools:         
