@@ -74,7 +74,7 @@ Some helpers for wrapping / unwrapping:
 > action = Action . ReaderT
 > 
 > runBehaviorStep :: Behavior i -> i -> IO (Maybe (Behavior i))
-> runBehaviorStep = fmap runMaybeT . runReaderT . readerT . headAction
+> runBehaviorStep = fmap runMaybeT . runAction . headAction
 
 
 Kleisli is ReaderT, so these are basically cribbed from its instances. 

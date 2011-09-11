@@ -4,6 +4,11 @@
 > import Control.Concurrent.Chan.Split
 > import Control.Concurrent.Chan.Class
 > import Data.Cofunctor
+> import Control.Monad.IO.Class
+> import Control.Concurrent(forkIO)
+> import Control.Applicative
+> import Control.Exception
+> import Control.Monad
 
 
 
@@ -185,26 +190,6 @@ something that would not happen with plain Chans.
 This doesn't guarantee that all messages in the Chan will be processed or that a
 chan won't fill faster than its messages are consumed; it simply aids garbage
 collection and keeps things a little more controlled.
-
-
-SEND FUNCTIONS
----------------
-
-> -- | Send a message asynchronously. This can be used to send messages to other
-> -- Actors via a 'Mailbox', or used as a means of output from the Actor system
-> -- to IO.
-> -- .
-> -- /Sends to a Mailbox/:
-> -- This does not wait for the Actor to receive the message before returning, 
-> -- but will block while no Behavior is active in the corresponding Actor. The
-> -- runtime will notice deadlocks and quietly garbage collect senders to a dead
-> -- actor.
-> -- . 
-> -- > send b = liftIO . writeChan b
-> send :: (MonadIO m, WritableChan c)=> c a -> a -> m ()
-> send b = liftIO . writeChan b
-
-
 
 
 
