@@ -5,26 +5,15 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > module Control.Concurrent.Actors (
 >
 >
->     -- * Actor behaviors
+>     -- * Actor Behaviors
 >       Behavior(..)
->     , Behavior_
->
->     -- ** building @Behaviors@
->     , recv_
->
->
->     -- * Actor model actions
->     {- | 
->     In the 'Action' monad, actors are permitted to:
-> 
->            - 'send' messages to actors whose 'Mailbox' they know about
-> 
->            - spawn new concurrent actors with 'forkActor' et al.
->     
->     ...finally returning the 'Behavior' to be applied to the next input.
->     -}
 >     , Action()
 >
+>     -- ** building @Behaviors@
+>     , halt
+>     , receive
+>
+>     -- * Available actions
 >     -- ** Message passing
 >     , Mailbox
 >     , send
@@ -45,10 +34,6 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , forkActorDoing_
 >     , runBehavior_
 >
->
->     -- * Supporting classes
->     , module Data.Cofunctor 
->
 >     ) where
 >
 > import Data.Monoid
@@ -63,7 +48,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Control.Concurrent.Chan.Split
 > import Control.Concurrent.Chan.Class
 > import Data.Cofunctor
-
+>
+> -- internal:
+> import Control.Concurrent.Actors.Behavior
+> import Control.Concurrent.Actors.Chans
 
 
 
@@ -79,34 +67,51 @@ work with GHCi:
 
 ------
 
-It would be nice to put this in a CPP conditional block. Does cabal define a CPP
-variable when tests are run?
-
-> dEBUGGING :: Bool
-> dEBUGGING = True
-
 
 
 TODO
 -----
+    - do name changes for forkActorDoing, etc. (see notes)
+        - forkActor -> spawnIdle
+        - forkActorDoing -> spawn
+        - doing / halt -> starting / stop
+    - fix code for new version of Action
+    x consider a possible monoid instance for Behavior
+        (We can add it later if we decide it is a true monoid, but not so
+        useful)
+        (some actor model implementations keep a message in the mailbox
+         (whatever that means) when it falls through all case statements. this is
+         kind of like the situation of a do pattern-match failure, thus a monoid
+         that resumes on that input makes sense)
+    x don't create Behavior_ synonym, encourage polymorphic Behaviors
+    - better documentation:
+        - reorder export list
+        - examples
+        - don't make explanations of blocking behavior so prominent.
+    - test if we can recover from deadlocked actor using 'doing' queuing
+      behavior
     - some more involved / realistic tests
         - binary tree
-    - add any necessary utility functions
+        - test above on code without sender locking
     - get complete code coverage into simple test module
     - consider removing 'loggingException's, replace with 'error' call when 
        programmer error is encountered.
     - release 0.2.0 !
 
-    - better documentation:
-        - examples
     - structured declarative and unit tests
-
-    - test performance vs. straight Chans, etc.
-    - test out overhead of our various locks
+    - Performance testing:
+        - test performance vs. straight Chans, etc.
+        - test out overhead of our various locks, especially difference if we
+          scrap the snederLockMutex
     - some sort of exception handling technique via Actors
         (look at enumerator package)
     - investigate ways of positively influencing thread scheduling based on
        actor work agenda 
+    -other ideas
+        -strict send' function
+        -IO behvior runner on a list for debugging 
+        - looping based on predicate (can we get this from our instances?)
+        -Behavior -> enumeratee package translator (and vice versa)
     - export some useful Actors:
         - 'loop' which keeps consuming
         - function returning an actor to "load balance" inputs over multiple
@@ -121,34 +126,17 @@ ACTORS AND THE ACTOR ENVIRONMENT
 Here we define the Actor environment, similar to IO, in which we can launch new
 Actors and send messages to Actors in scope. The implementation is hidden from
 the user to enforce these restrictions.
-
+> {-
 > -- | The Action environment in which 'Actors' can be spawned and sent messages.
 > -- .
 > -- /N.B./ The ability to use 'liftIO' here is an abstraction leak, but is convenient
 > -- e.g. to allow Actors to make use of a RNG or for library designers, etc.
 > newtype Action a = Action { action :: IO a }
 >                  deriving (Monad, Functor, Applicative, MonadIO)
+> -}
 
 
-First we define a Behavior: either the null behavior, or a function that takes 
-an input, performs some Actions and returns the next Behavior.
-
-The constructor names are meant to connote the corresponding state of the Actor.
-Further, I hope the name 'Recv' will also make for somewhat more readable
-lambdas in Behavior definitions, as in:
-
-    behaviorFoo a b = Recv $ \i -> do
-        send b (i+1)
-        send a 'x'
-        return (behaviorFoo a b)
-
-where the first line of the definition can be read:
-
-    "Receive 'i' & do ..."
-
-YMMV
-
-
+> {-
 > -- | An actor works by:
 > --
 > --     1. receiving an input message
@@ -169,12 +157,6 @@ YMMV
 > type BehaviorStep i = i -> Action (Behavior i)
 >
 
-Behavior helpers:
-
-> maybeDo :: (BehaviorStep i -> IO ()) -> Behavior i -> IO ()
-> maybeDo f (Recv c) = f c
-> maybeDo _ _        = return ()
-
 
 Useful instances:
 
@@ -188,27 +170,31 @@ Useful instances:
 > instance Cofunctor Behavior where
 >     cofmap f (Recv c) = Recv $ fmap (cofmap f) . c . f
 >     cofmap _ _        = Idle
+> -}
 
 
-TRIVIAL HELPERS
-----------------
+CONSTRUCTING BEHAVIORS
+----------------------
 
-A Behavior is just an Behavior that ignores its input. We provide some useful
-functions for building and running such computations:
+Functionality is based on our underlying type classes, but users shouldn't need
+to import a bunch of libraries to get basic Behavior building functionality:
 
-> -- | A 'Behavior' that discards its input
-> type Behavior_ = Behavior ()
+> -- | Aborts an Actor computation:
+> -- 
+> -- > halt = mzero
+> halt :: Action i a
+> halt = mzero
 
 
-These might make building actor computations more readable:
-
-> -- | Helper for building polymorphic 'Behavior's that ignore their input
+> -- | Read the current message to be processed. /N.B/ the value returned here
+> -- does not change between calls in the same 'Action'.
 > --
-> -- > recv_ = Recv . const
-> recv_ :: Action (Behavior i) -> Behavior i
-> recv_ = Recv . const
+> -- > receive = ask -- ...ask and ye shall receive
+> receive :: Action i i
+> receive = ask
 
 
+> {-
 MESSAGE CHANNELS
 ================
 
@@ -253,6 +239,24 @@ functionality of the library more explicit.
 > 
 > instance Functor Actor where
 >     fmap f (Actor c sl fl) = Actor (fmap f c) sl fl
+
+
+These classes are from the split-chan package:
+
+> instance WritableChan Mailbox where
+>     writeChan b m = loggingException "writeChan Mailbox: " $
+>     -- BlockedIndefinitelyOnMVar will be raised in waitSenderLock if this chan is
+>     -- dead because no actors will ever work on it. The exception re-raised
+>     -- here will be caught in an automatic handler installed by forkIO or will
+>     -- surface in IO, depending on usage above:
+>          bracket                           
+>            (takeSenderLock b)            
+>            (putSenderLock b)             
+>            (\sl-> waitSenderLock sl >> writeChan (inChan b) m) 
+>
+> instance ReadableChan Actor where
+>     readChan = readChan . outChan 
+
 
 
 
@@ -334,17 +338,6 @@ Here are some helpers for dealing with lock types:
 
 
 
-HOW WE USE THE LOCKS
---------------------
-
-    forkActor (Actor):
-        ...
-    forkActorOn:
-        ...
-    send:
-        ...
-    done (or exception handled):
-        ...
 
 
 
@@ -383,7 +376,9 @@ This doesn't guarantee that all messages in the Chan will be processed or that a
 chan won't fill faster than its messages are consumed; it simply aids garbage
 collection and keeps things a little more controlled.
 
+> -}
 
+> {-
 
 SEND FUNCTIONS
 ---------------
@@ -403,33 +398,16 @@ SEND FUNCTIONS
 > send b = liftIO . writeChan b
 >
 
-These classes are from the split-chan package:
-
-> instance WritableChan Mailbox where
->     writeChan = putMessage
->
-> instance ReadableChan Actor where
->     readChan = readChan . outChan 
-
-
-Internal function:
-
-> putMessage :: Mailbox a -> a -> IO ()
-> putMessage b m = loggingException "putMessage" $
->     -- BlockedIndefinitelyOnMVar will be raised in waitSenderLock if this chan is
->     -- dead because no actors will ever work on it. The exception re-raised
->     -- here will be caught in an automatic handler installed by forkIO or will
->     -- surface in IO, depending on usage above:
->          bracket                           
->            (takeSenderLock b)            
->            (putSenderLock b)             
->            (\sl-> waitSenderLock sl >> writeChan (inChan b) m) 
-
-
+> -}
 
 
 RUNNING AND FORKING ACTORS
 ===========================
+
+> maybeDo :: (BehaviorStep i -> IO ()) -> Behavior i -> IO ()
+> maybeDo f (Recv c) = f c
+> maybeDo _ _        = return ()
+
 
 Internal function that feeds the actor computation its values:
 
@@ -447,7 +425,7 @@ RUNNING
 These work in IO and returning () when the actor finishes with done/mzero:
 
 > -- | run a Behavior_ in the main thread, returning when the computation exits
-> runBehavior_ :: Behavior_ -> IO ()
+> runBehavior_ :: Behavior () -> IO ()
 > runBehavior_ = maybeDo step 
 >     where step b = action (b ()) >>= runBehavior_
 
@@ -463,9 +441,9 @@ FORKING
 >     return b
 >
 > -- | fork a looping computation which starts immediately. Equivalent to
-> -- launching a 'Behavior_' and another 'Behavior' that sends an infinite stream of
+> -- launching a @Behavior ()@ and another 'Behavior' that sends an infinite stream of
 > -- ()s to the former.
-> forkActorDoing_ :: (MonadIO m)=> Behavior_ -> m ()
+> forkActorDoing_ :: (MonadIO m)=> Behavior () -> m ()
 > forkActorDoing_ = liftIO . void . forkIO . runBehavior_  
 
 
@@ -495,28 +473,3 @@ This is how the internal forking procedure below works, w.r.t locks, etc:
 >                  (actorRunner str ac)
 
 
-
-
-TESTING AND HELPERS:
-=====================
-
-
-Occurences of these should turn into "return ()" when the CPP sets 
-    dEBUGGING = False
-
-> {-
-> -- When dEBUGGING is False at compile time and optimizations are turned on, 
-> -- this should completely disappear
-> assertIO :: (MonadIO m)=> m Bool -> m ()
-> assertIO a = when dEBUGGING $ 
->     a >>= liftIO . flip assert (return ())
-> -}
->
-> -- rethrow exceptions, logging to stdout if dEBUGGING
-> loggingException :: String -> IO a -> IO a
-> loggingException s io 
->     | dEBUGGING = Control.Exception.catch io handler
->     | otherwise = io
->             where handler :: SomeException -> IO a
->                   handler e = do when dEBUGGING $ putStrLn $ ((s++": ")++) $ show e
->                                  throwIO e
