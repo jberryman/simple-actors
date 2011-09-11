@@ -37,7 +37,7 @@ functionality of the library more explicit.
 > -- running a 'Behavior' that is processing inputs sent to its 'Mailbox'
 > --
 > -- /IYI:/ The only thing we are allowed to do to an @Actor@ directly is to enqueue
-> -- 'Behaviors' (see 'doing'). This separation of actor initialization and
+> -- 'Behaviors' (see 'starting'). This separation of actor initialization and
 > -- behavior enqueueing is necessary to allow e.g. two actors access each to
 > -- the other\'s Mailbox
 > data Actor o = Actor { outChan :: OutChan o
@@ -162,11 +162,11 @@ token corresponding to an actor running or idling in the ether. Furthermore,
 this doesn't actually do a forkIO, which we treat as an unimportant implementation
 detail.
 
-> -- | Create a new concurrent 'Actor', returning its 'Mailbox'. Using 'doing' to
+> -- | Create a new concurrent 'Actor', returning its 'Mailbox'. Using 'starting' to
 > -- initialize a 'Behavior' for the @Actor@ will cause it to unlock its
 > -- 'Mailbox' and begin accepting and processing inputs.
-> forkActor :: (MonadIO m)=> m (Mailbox a, Actor a)
-> forkActor = liftIO $ do
+> spawnIdle :: (MonadIO m)=> m (Mailbox a, Actor a)
+> spawnIdle = liftIO $ do
 >     (inC,outC) <- newSplitChan
 >      -- fork Lock starts initially full:
 >     fLock <- FL <$> newMVar ()

@@ -10,7 +10,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , Action()
 >
 >     -- ** building @Behaviors@
->     , halt
+>     , stop
 >     , receive
 >
 >     -- * Available actions
@@ -23,15 +23,15 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     The spawning of a new concurrent 'Actor' can be done separately from the
 >     initialization of the Actor\'s 'Behavior'. Otherwise defining
 >     mutually-communicating actors would not be possible. To spawn an actor and
->     initialize its @Behavior@ in one go, you can use 'forkActorDoing'.
+>     initialize its @Behavior@ in one go, you can use 'spawn'.
 >     -}
 >     , Actor
->     , forkActor
->     , doing
+>     , spawnIdle
+>     , starting
 >
 >     -- *** Utility functions
->     , forkActorDoing
->     , forkActorDoing_
+>     , spawn
+>     , spawn_
 >     , runBehavior_
 >
 >     ) where
@@ -71,7 +71,7 @@ work with GHCi:
 
 TODO
 -----
-    - do name changes for forkActorDoing, etc. (see notes)
+    x do name changes for forkActorDoing, etc. (see notes)
         - forkActor -> spawnIdle
         - forkActorDoing -> spawn
         - doing / halt -> starting / stop
@@ -88,7 +88,7 @@ TODO
         - reorder export list
         - examples
         - don't make explanations of blocking behavior so prominent.
-    - test if we can recover from deadlocked actor using 'doing' queuing
+    - test if we can recover from deadlocked actor using 'starting' queuing
       behavior
     - some more involved / realistic tests
         - binary tree
@@ -181,9 +181,9 @@ to import a bunch of libraries to get basic Behavior building functionality:
 
 > -- | Aborts an Actor computation:
 > -- 
-> -- > halt = mzero
-> halt :: Action i a
-> halt = mzero
+> -- > stop = mzero
+> stop :: Action i a
+> stop = mzero
 
 
 > -- | Read the current message to be processed. /N.B/ the value returned here
@@ -344,6 +344,8 @@ Here are some helpers for dealing with lock types:
 CREATING CHANS / SENDING MESSAGES
 ==================================
 
+> {-
+
 Note, after much thought I've decided the abstraction that is the module
 interface should differ from the implementation for conceptual simplicity.
 
@@ -355,8 +357,8 @@ detail.
 > -- | Create a new concurrent 'Actor', returning its 'Mailbox'. Using 'doing' to
 > -- initialize a 'Behavior' for the @Actor@ will cause it to unlock its
 > -- 'Mailbox' and begin accepting and processing inputs.
-> forkActor :: (MonadIO m)=> m (Mailbox a, Actor a)
-> forkActor = liftIO $ do
+> spawnIdle :: (MonadIO m)=> m (Mailbox a, Actor a)
+> spawnIdle = liftIO $ do
 >     (inC,outC) <- newSplitChan
 >      -- fork Lock starts initially full:
 >     fLock <- FL <$> newMVar ()
@@ -433,18 +435,18 @@ These work in IO and returning () when the actor finishes with done/mzero:
 FORKING
 --------
 
-> -- | Fork an actor 'doing' a 'Behavior' directly, returning its input 'Mailbox'
-> forkActorDoing :: (MonadIO m)=> Behavior i -> m (Mailbox i)
-> forkActorDoing a = do
->     (b,str) <- forkActor
->     doing str a
->     return b
+> -- | Fork an actor 'starting' a 'Behavior' directly, returning its input 'Mailbox'
+> spawn :: (MonadIO m)=> Behavior i -> m (Mailbox i)
+> spawn b = do
+>     (m,a) <- spawnIdle
+>     a `starting` b
+>     return m
 >
 > -- | fork a looping computation which starts immediately. Equivalent to
 > -- launching a @Behavior ()@ and another 'Behavior' that sends an infinite stream of
 > -- ()s to the former.
-> forkActorDoing_ :: (MonadIO m)=> Behavior () -> m ()
-> forkActorDoing_ = liftIO . void . forkIO . runBehavior_  
+> spawn_ :: (MonadIO m)=> Behavior () -> m ()
+> spawn_ = liftIO . void . forkIO . runBehavior_  
 
 
 
@@ -460,10 +462,10 @@ This is how the internal forking procedure below works, w.r.t locks, etc:
 
 
 > -- | Enqueue a 'Behavior' for an 'Actor' to perform. This will block while the
-> -- @Actor@ is already 'doing' a @Behavior@, returning when the @Actor@ begins
+> -- @Actor@ has already started a @Behavior@, returning when the @Actor@ begins
 > -- the passed @Behavior@.
-> doing :: (MonadIO m)=> Actor i -> Behavior i -> m ()
-> doing str ac = liftIO $ void $ do
+> starting :: (MonadIO m)=> Actor i -> Behavior i -> m ()
+> starting str ac = liftIO $ void $ do
 >     -- blocks, waiting for other actors to give up control:
 >     acquireStream str
 >     -- Fork actor computation, waiting for first input.
