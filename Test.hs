@@ -10,19 +10,20 @@ import Data.Cofunctor
 import Control.Applicative
 import Control.Monad.IO.Class
 import System.Random
+import Control.Monad
 
 main = do
-    --forkActorQueueTest
+    --spawnTest
     binaryTreeTest
 
 ------------------------
 -- informal test that forkLocking is working:
-forkActorQueueTest = do
+spawnTest = do
     output <- newChan
     -- fork the actor to send numbers to whomever is listening to 's'. The sends
     -- inside the forked Actor_ will block until 's' has an Actor
-    (b,a) <- forkActor
-    forkActorDoing_ $ senderTo 1000 b
+    (b,a) <- spawnIdle
+    spawn_ $ senderTo 1000 b
 
     -- TODO: consider to avoid parens, defining:
     --     doingBehavior a b = a `doing` (behavior b)
@@ -33,12 +34,12 @@ forkActorQueueTest = do
     -- there is no need for a doingBeh_ variant since it goes nicely before the
     -- 'do' in function decls. Another alternative:
     --     'behaving'
-    a `doing` sendInputTo output 200
+    a `starting` sendInputTo output 200
     -- these will block 
-    a `doing` sendInputTo output 200
-    a `doing` sendInputTo output 200
-    a `doing` sendInputTo output 200
-    a `doing` sendInputTo output 200
+    a `starting` sendInputTo output 200
+    a `starting` sendInputTo output 200
+    a `starting` sendInputTo output 200
+    a `starting` sendInputTo output 200
 
      -- output should be in order because actor forks waited their turns above:
     getChanContents output >>=
@@ -49,21 +50,18 @@ forkActorQueueTest = do
 -- TODO: consider if we should export a BehaviorStep type synonym. Alternatively
 -- we might do: UnwrappedBehavior, or something to that effect
 sendInputTo :: Chan Int -> Int -> Behavior Int
-sendInputTo c n = Recv $ \i-> do
+sendInputTo c n = Behavior $ do
+    i <- receive
     send c i
-    -- TODO: Consider defining:
-    -- elseReturn b a = if b then done else return a
-    -- actually something named like guard would be better:
-    return $ if n == 1 
-             then Idle
-             else sendInputTo c (n-1)
+     -- halt if not equal to 1
+    guard (n /= 1)
+    return $ sendInputTo c (n-1)
 
-senderTo :: Int -> Mailbox Int -> Behavior_
-senderTo n c = recv_ $ do
+senderTo :: Int -> Mailbox Int -> Behavior a
+senderTo n c = Behavior $ do
     send c n
-    return $ if n == 1
-             then Idle
-             else senderTo (n-1) c
+    guard $ n /= 1
+    return $ senderTo (n-1) c
 
 
 ------------------------
@@ -93,24 +91,23 @@ addValue a nd = liftIO $ do
 -- the value was already present.
 -- The behavior then recurses, closing over any newly created child node.
 treeNode :: Maybe Node -> Maybe Node -> Int -> Behavior Message
-treeNode l r a = Recv $ \m@(a',v)->
-
-  let addToChild = fmap Just . maybe newNode passToChild
-      newNode = send v True >> initTree a'
-      passToChild c = c <$ send c m
-
-   in case compare a' a of
-           -- signal that node was present and return:
-           EQ -> send v False >> return (treeNode l r a)
-           -- return new behavior closed over possibly newly-created child nodes:
-           LT -> (\l'-> treeNode l' r a) <$> addToChild l
-           GT -> (\r'-> treeNode l r' a) <$> addToChild r
+treeNode l r a = Behavior $ do
+     m@(a',v) <- receive
+     let addToChild = fmap Just . maybe newNode passToChild
+         newNode = send v True >> initTree a'
+         passToChild c = c <$ send c m
+     case compare a' a of
+          -- signal that node was present and return:
+          EQ -> send v False >> return (treeNode l r a)
+          -- return new behavior closed over possibly newly-created child nodes:
+          LT -> (\l'-> treeNode l' r a) <$> addToChild l
+          GT -> (\r'-> treeNode l r' a) <$> addToChild r
 
 
 
 -- create a new tree from an initial element. used to make branches internally
 initTree :: MonadIO m=> Int -> m Node
-initTree = forkActorDoing . treeNode Nothing Nothing
+initTree = spawn . treeNode Nothing Nothing
     
 
 
@@ -124,14 +121,14 @@ binaryTreeTest = do
     -- create a new tree from an initial value
     root <- initTree 0
     -- FORK 10 WRITERS TO THE TREE
-    mapM_ (forkActorDoing_ . writeRandsTo root output 1000) ['a'..'z']
+    mapM_ (spawn_ . writeRandsTo root output 1000) ['a'..'z']
     -- print ourput from chan:
     getChanContents output >>= mapM (putStrLn . show) . take (26*1000)
 
 
 
 -- Lift an RNG to an Action. A non-abstraction-breaking use of liftIO here, IMHO
-randInt :: Action Int
+randInt :: Action a Int
 randInt = liftIO $ randomRIO (-5000,5000) 
 
 
@@ -140,9 +137,9 @@ type OutMessage = (Name,Bool,Int)
 
 
 -- we also use an Actor to write our values to the tree
-writeRandsTo :: RootNode -> Chan OutMessage -> Int -> Name -> Behavior_
-writeRandsTo _    _   0 _    = Idle
-writeRandsTo root out n name = recv_ $ do
+writeRandsTo :: RootNode -> Chan OutMessage -> Int -> Name -> Behavior a
+writeRandsTo root out n name = Behavior $ do
+    guard (n /= 0)
     -- a random stream of ints:
     i <- randInt
     -- add them into the tree, returning a list of the results:

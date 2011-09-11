@@ -68,7 +68,6 @@ work with GHCi:
 
 TODO
 -----
-    - fix code for new version of Action
     x consider a possible monoid instance for Behavior
         (We can add it later if we decide it is a true monoid, but not so
         useful)
@@ -76,9 +75,7 @@ TODO
          (whatever that means) when it falls through all case statements. this is
          kind of like the situation of a do pattern-match failure, thus a monoid
          that resumes on that input makes sense)
-    x don't create Behavior_ synonym, encourage polymorphic Behaviors
     - better documentation:
-        - reorder export list
         - examples
         - don't make explanations of blocking behavior so prominent.
     - test if we can recover from deadlocked actor using 'starting' queuing
