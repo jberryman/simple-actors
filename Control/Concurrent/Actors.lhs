@@ -78,8 +78,9 @@ TODO
     - better documentation:
         - examples
         - don't make explanations of blocking behavior so prominent.
-    - test if we can recover from deadlocked actor using 'starting' queuing
+    x test if we can recover from deadlocked actor using 'starting' queuing
       behavior
+      * not really, shit is so broken
     - some more involved / realistic tests
         - binary tree
         - initial benchmarking:
@@ -87,8 +88,9 @@ TODO
     - get complete code coverage into simple test module
     - consider removing 'loggingException's, replace with 'error' call when 
        programmer error is encountered.
-    - release 0.2.0 !
+    - release 0.1.0 !
 
+ 0.2.0:
     - structured declarative and unit tests
     - Performance testing:
         - test performance vs. straight Chans, etc.
@@ -99,8 +101,9 @@ TODO
     - investigate ways of positively influencing thread scheduling based on
        actor work agenda 
     -other ideas
-        -strict send' function
-        -IO behvior runner on a list for debugging 
+        - consider adding a global output chan and actorOutput :: IO String
+        - strict send' function
+        - IO behvior runner on a list for debugging 
         - looping based on predicate (can we get this from our instances?)
         -Behavior -> enumeratee package translator (and vice versa)
     - export some useful Actors and global thingies
@@ -109,7 +112,8 @@ TODO
           actors
         - an actor that sends a random stream?
         - a pre-declared Mailbox for IO?
-
+    - provide an "adapter" for amazon SQS, allowing truly distributed message
+      passing
 
 
 ACTIONS
