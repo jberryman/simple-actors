@@ -3,7 +3,7 @@
 > import Control.Concurrent.MVar
 > import Control.Concurrent.Chan.Split
 > import Control.Concurrent.Chan.Class
-> import Data.Cofunctor
+> import Data.Functor.Contravariant
 > import Control.Monad.IO.Class
 > import Control.Concurrent(forkIO)
 > import Control.Applicative
@@ -27,35 +27,20 @@ Finally, having a seperate Chan type that can only be read in IO makes intended
 functionality of the library more explicit.
 
 > -- | A @Mailbox@ allows messages to be passed asynchronously to the
-> -- corresponding 'Actor' where they can be processed by a 'Behavior'. 
->
-> -- A Mailbox is locked unless the corresponding Actor has an active Behavior.
-> -- This means for instance that a 'send' to a Mailbox of an uninitialized
-> -- Actor will block, possibly indefinitely (in which case the 'send'ing actor
-> -- will be quietly garbage collected).
-> data Mailbox i = Mailbox { inChan :: InChan i                  
->                          , senderLockMutex :: SenderLockMutex 
->                          }
+> -- Actor reading from the corresponding 'InputStream' where they can be 
+> -- processed by a 'Behavior'. 
+> newtype Mailbox i = Mailbox { inChan :: InChan i }
 >                    
 >
-> -- | A token representing a forked concurrent actor, which might be idle or
-> -- running a 'Behavior' that is processing inputs sent to its 'Mailbox'
-> --
-> -- /IYI:/ The only thing we are allowed to do to an @Actor@ directly is to enqueue
-> -- 'Behaviors' (see 'starting'). This separation of actor initialization and
-> -- behavior enqueueing is necessary to allow e.g. two actors access each to
-> -- the other\'s Mailbox
-> data Actor o = Actor { outChan :: OutChan o
->                      , senderLock :: SenderLock 
->                      , forkLock :: ForkLock     
->                      }                          
->                         
+> -- | A stream of messages sent to a correspondind 'Mailbox'. An actor can be
+> -- spawned taking input from a user
+> data InputStream i = InputStream { outChan :: OutChan i }
 >
-> instance Cofunctor Mailbox where
->     cofmap f (Mailbox c l) = Mailbox (cofmap f c) l
+> instance Contravariant Mailbox where
+>     contramap f = Mailbox . contramap f
 > 
-> instance Functor Actor where
->     fmap f (Actor c sl fl) = Actor (fmap f c) sl fl
+> instance Functor InputStream where
+>     fmap f = InputStream . fmap f . outChan
 
 
 These classes are from the split-chan package:
@@ -77,81 +62,6 @@ These classes are from the split-chan package:
 
 
 
-LOCKING MECHANISMS
-==================
-
-We use a system of locks to enforce these properties of the environment:
-
-    1) Sends will block until there is an Actor processing the stream
-
-    2) Attempting to fork on an Actor will block until no other Actor
-        is processing the stream
-
-
-SEND LOCKS
------------
-
-All the senders who want to send block on this mutex:
-
-> newtype SenderLockMutex = SLM { getMutex :: MVar SenderLock }
->
-> takeSenderLock :: Mailbox i -> IO SenderLock
->  -- TODO: BlockedIndefinitelyOnMVar HERE MEANS: the SenderLock was never
->  -- returned and we lost the game. Re-raise a more meaningful exception
-> takeSenderLock = loggingException "BUG: takeSenderLock" . 
->                   takeMVar . getMutex . senderLockMutex
->
-> putSenderLock :: Mailbox i -> SenderLock -> IO ()
->  -- TODO: BlockedIndefinitelyOnMVar HERE MEANS: the (some?) SenderLock was
->  -- 'put' or never taken or aliens. We lost the game and should re-raise a
->  -- humbling appology
-> putSenderLock m = loggingException "BUG: putSenderLock" . 
->                    putMVar (getMutex $ senderLockMutex m)
-
-
-They then must readMVar here before writing to the Chan. This inner MVar is
-copied in the corresponding Actor:
-
-> newtype SenderLock = SL { getSLock :: MVar () }
->
-> waitSenderLock :: SenderLock -> IO ()
->  -- TODO: BlockedIndefinitelyOnMVar HERE MEANS: (assuming we didn't do
->  -- something stupid like use any other function to get or put this MVar) that no
->  -- Actor will ever be working on the corresponding stream we're dealing with.
-> waitSenderLock = loggingException "waitSenderLock" . 
->                   readMVar . getSLock  -- take + put
-
-We must use this double-lock to ensure that we can block senders without waiting
-in line behind all the senders currently in the queue to do a 'take' on the
-MVar.
-
-
-FORK LOCKS
------------
-
-While an actor is reading from a stream it takes the () and when it finishes (or
-dies with an exception) it returns it. Thus forks should block and queue fairly
-on this:
-
-> newtype ForkLock = FL { getFLock :: MVar () }
-
-
-Here are some helpers for dealing with lock types:
-
-> unblockSenders, blockSenders, acquireStream, giveUpStream :: Actor o -> IO ()
-> -- Exceptions raised here mean our lock implementation is buggy:
-> acquireStream = loggingException "BUG: acquireStream" . 
->                  takeMVar . getFLock . forkLock
-> giveUpStream = loggingException "BUG: giveUpStream" . 
->                  flip putMVar () . getFLock . forkLock
-> unblockSenders = loggingException "BUG: unblockSenders" .
->                  flip putMVar () . getSLock . senderLock
-> blockSenders = loggingException "BUG: blockSenders" .
->                  takeMVar . getSLock . senderLock 
->
-> closeStream :: Actor o -> IO ()
-> closeStream str = blockSenders str >> giveUpStream str
-> --openStream str = acquireStream str >> unblockSenders str 
 
 
 
@@ -180,16 +90,6 @@ detail.
 >     sMutex <- SLM <$> newMVar sLock
 >     return (Mailbox inC sMutex, Actor outC sLock fLock)
 
-
-A channel of communication should never have senders without a receiver. To
-enforce this idea, we make 'send' operations block until an Actor is consuming
-the corresponding stream. When the runtime determines that a sender will be
-blocked indefinitely, an exception will be raised (BlockedIndefinitelyOnMVar)
-something that would not happen with plain Chans. 
-
-This doesn't guarantee that all messages in the Chan will be processed or that a
-chan won't fill faster than its messages are consumed; it simply aids garbage
-collection and keeps things a little more controlled.
 
 
 

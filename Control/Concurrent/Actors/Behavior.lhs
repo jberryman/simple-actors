@@ -20,7 +20,7 @@ These imports are mostly for all the instances for Action that we define:
 > import Control.Arrow
 > import qualified Control.Category as C
 >
-> import Data.Cofunctor
+> import Data.Functor.Contravariant
 
 
 A Behavior wraps an Action i a, into a list-like sequence of actions to perform
@@ -30,8 +30,8 @@ over inputs:
 > -- input is a @Behavior@.
 > newtype Behavior i = Behavior { headAction :: Action i (Behavior i) }
 > 
-> instance Cofunctor Behavior where
->     cofmap f (Behavior a) = Behavior $ f ^>> (cofmap f <$> a)
+> instance Contravariant Behavior where
+>     contramap f (Behavior a) = Behavior $ f ^>> (contramap f <$> a)
 > 
 > -- This can probably be a monoid but it's a bit hokey
 > --instance Monoid ..

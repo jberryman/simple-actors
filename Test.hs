@@ -6,7 +6,6 @@ import Control.Concurrent.Chan
 import Control.Concurrent(forkIO,threadDelay)
 import Control.Concurrent.MVar
 import Control.Exception
-import Data.Cofunctor
 import Control.Applicative
 import Control.Monad.IO.Class
 import System.Random

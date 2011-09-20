@@ -68,6 +68,10 @@ work with GHCi:
 
 TODO
 -----
+    - get rid of all locks
+    - re-name 'Actor' to InputStream, ActorStream
+              'starting' -> spawnFrom, spawnReading, spawnOn...
+              'spawnIdle -> 
     x consider a possible monoid instance for Behavior
         (We can add it later if we decide it is a true monoid, but not so
         useful)
@@ -86,8 +90,6 @@ TODO
         - initial benchmarking:
             - test above on code without sender locking
     - get complete code coverage into simple test module
-    - consider removing 'loggingException's, replace with 'error' call when 
-       programmer error is encountered.
     - release 0.1.0 !
 
  0.2.0:

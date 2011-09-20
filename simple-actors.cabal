@@ -49,8 +49,11 @@ Build-type:          Simple
 -- Extra-source-files:  
 
 -- Constraint on the version of Cabal needed to build this package.
-Cabal-version:       >=1.2
+Cabal-version:       >=1.6
 
+source-repository head   
+    type:     git
+    location: https://github.com/jberryman/simple-actors.git
 
 Library
   -- Modules exported by the library.
@@ -61,6 +64,7 @@ Library
                      , chan-split
                      , mtl >= 2
                      , transformers
+                     , contravariant
                     
   
   ghc-options:        -Wall
