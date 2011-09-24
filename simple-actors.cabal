@@ -70,8 +70,8 @@ Library
   ghc-options:        -Wall
 
   -- Modules not exported by this package.
-  Other-modules:       Control.Concurrent.Actors.Chans
-                     , Control.Concurrent.Actors.Behavior
+  Other-modules:     Control.Concurrent.Actors.Behavior
+                     
   
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   -- Build-tools:         

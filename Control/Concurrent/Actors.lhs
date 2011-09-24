@@ -1,4 +1,4 @@
-> {-# LANGUAGE CPP, GeneralizedNewtypeDeriving #-}
+> {-# LANGUAGE CPP, GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
 
 This module exports a simple, idiomatic implementation of the Actor Model.
 
@@ -11,20 +11,23 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >
 >     -- * Available actions
 >     -- ** Message passing
->     , Mailbox
+>     , Mailbox()
 >     , send
 >     , receive
 >
->     -- ** Creating Actors and starting Behaviors
+>     -- ** Creating Mailboxes and spawning actors
 >     {- | 
->     The spawning of a new concurrent 'Actor' can be done separately from the
->     initialization of the Actor\'s 'Behavior'. Otherwise defining
->     mutually-communicating actors would not be possible. To spawn an actor and
->     initialize its @Behavior@ in one go, you can use 'spawn'.
+>     Message passing occurs through the medium of a 'Mailbox'/'MailStream'
+>     pair. A 'Behavior' can be 'spawn'ed directly, returning its @Mailbox@; or
+>     a chan pair can be first instantiated with 'newMailbox' and then a
+>     @Behavior@ run explicitly on a @MailStream@ with 'spawnReading'.
+>
+>     The latter is necessary for spawning mutually-communicating actors, and
+>     allows one to share a MailStream between actors.
 >     -}
->     , Actor
->     , spawnIdle
->     , starting
+>     , MailStream()
+>     , newMailbox
+>     , spawnReading
 >     , spawn
 >     -- ** Exiting an actor computation
 >     , stop
@@ -41,14 +44,13 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import qualified Data.Foldable as F
 > import Control.Monad.IO.Class
 > import Control.Concurrent(forkIO)
-> import Control.Exception
 >
+> import Data.Functor.Contravariant
 > -- from the chan-split package
 > import Control.Concurrent.Chan.Split
 >
 > -- internal:
 > import Control.Concurrent.Actors.Behavior
-> import Control.Concurrent.Actors.Chans
 
 
 
@@ -66,12 +68,63 @@ work with GHCi:
 
 
 
+
+CHAN TYPES
+==========
+
+> -- | Instantiate a new @Mailbox@ where actors can 'send' messages, and a
+> -- corresponding message stream that an actor can process. Messages are
+> -- streamed in the order they are received.
+> --
+> -- > newMailbox = liftIO newSplitChan
+> newMailbox :: (MonadIO m)=> m (Mailbox a, MailStream a)
+> newMailbox = liftIO newSplitChan
+>
+> -- | One can 'send' a messages to a @Mailbox@ where it will be processed by an
+> -- actor running on the corresponding 'MailStream'
+> newtype Mailbox a = Mailbox { inChan :: InChan a }
+>       deriving (Contravariant)
+>
+> -- | Messages sent to a 'Mailbox' will be streamed in FIFO order to the
+> -- corresponding @MailStream@, an actor can be spawned on a specific
+> -- @MailStream@ using 'spawnReading'. Multiple actors can process input from
+> -- the same @MailStream@.
+> newtype MailStream a = MailStream { outChan :: OutChan a }
+>       deriving (Functor) 
+>
+> -- Not sure how to derive this or if possible:
+> instance SplitChan Mailbox MailStream where
+>     readChan = readChan . outChan
+>     writeChan = writeChan . inChan
+>     writeList2Chan = writeList2Chan . inChan
+>
+> instance NewSplitChan Mailbox MailStream where
+>     newSplitChan = fmap (\(i,o)-> (Mailbox i, MailStream o)) newSplitChan
+>
+> ---- TODO: consider defining instance of NewSplitChan if we want 'spawn' to be
+> ---- polymorphic over it. Inwhich case newMailbox = liftIO . newSplitChan
+
+
+
 TODO
 -----
-    - get rid of all locks
-    - re-name 'Actor' to InputStream, ActorStream
-              'starting' -> spawnFrom, spawnReading, spawnOn...
-              'spawnIdle -> 
+    x get rid of all locks
+    x re-name 'Actor' to InputStream 
+                or... Mailbox / MailStream 
+              'starting' -> spawnReading
+              'spawnIdle -> newMedium..
+    x create simple newtype-wrapped chan pairs (above) and define contravariant
+      and SplitChan, NewChan instances for them
+    x do NewChanSplit class
+    x redefine spawnReading to be polymorphic (also spawn? NO), as well as send
+      (over chan pair)
+    - change MailStream to something better
+        - InputStream
+        - Stream
+        - MessageStream
+        - MsgStream
+        - 
+    - clean up function docs (refs to locks, etc.)
     x consider a possible monoid instance for Behavior
         (We can add it later if we decide it is a true monoid, but not so
         useful)
@@ -143,14 +196,8 @@ to import a bunch of libraries to get basic Behavior building functionality:
 > -- Actors via a 'Mailbox', or used as a means of output from the Actor system
 > -- to IO.
 > -- .
-> -- /Sends to a Mailbox/:
-> -- This does not wait for the Actor to receive the message before returning, 
-> -- but will block while no Behavior is active in the corresponding Actor. The
-> -- runtime will notice deadlocks and quietly garbage collect senders to a dead
-> -- actor.
-> -- . 
 > -- > send b = liftIO . writeChan b
-> send :: (MonadIO m, WritableChan c)=> c a -> a -> m ()
+> send :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
 > send b = liftIO . writeChan b
 
 
@@ -159,21 +206,11 @@ FORKING AND RUNNING ACTORS:
 ===========================
 
 
-See Control.Concurrent.Actors.Chans for implementation of locks used here:
-
-> -- | Enqueue a 'Behavior' for an 'Actor' to perform. This will block while the
+> -- | Enqueue a 'Behavior' for an Actor to perform. This will block while the
 > -- @Actor@ has already started a @Behavior@, returning when the @Actor@ begins
 > -- the passed @Behavior@.
-> starting :: (MonadIO m)=> Actor i -> Behavior i -> m ()
-> starting str ac = liftIO $ void $ do
->     -- blocks, waiting for other actors to give up control:
->     acquireStream str
->     -- Fork actor computation, waiting for first input.
->     forkIO $ bracket_ 
->                  (unblockSenders str) 
->                  (closeStream str)
->                  (actorRunner str ac)
-
+> spawnReading :: (MonadIO m, SplitChan x c)=> c i -> Behavior i -> m ()
+> spawnReading str = liftIO . void . forkIO . actorRunner str
 
 
 RUNNING ACTORS
@@ -181,7 +218,7 @@ RUNNING ACTORS
 
 Internal:
 
-> actorRunner :: Actor i -> Behavior i -> IO ()
+> actorRunner :: (SplitChan x c)=> c i -> Behavior i -> IO ()
 > actorRunner str b =
 >     readChan str >>= runBehaviorStep b >>= F.mapM_ (actorRunner str)
 
@@ -205,8 +242,8 @@ FORKING ACTORS
 > -- | Fork an actor 'starting' a 'Behavior' directly, returning its input 'Mailbox'
 > spawn :: (MonadIO m)=> Behavior i -> m (Mailbox i)
 > spawn b = do
->     (m,a) <- spawnIdle
->     a `starting` b
+>     (m,s) <- newMailbox
+>     spawnReading s b
 >     return m
 >
 > -- | fork a looping computation which starts immediately. Equivalent to
