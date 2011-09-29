@@ -66,6 +66,53 @@ work with GHCi:
 
 ------------------------
 
+TODO
+-----
+    - consider a possible monoid instance for Behavior
+        (We can add it later if we decide it is a true monoid, but not so
+        useful)
+        (some actor model implementations keep a message in the mailbox
+         (whatever that means) when it falls through all case statements. this is
+         kind of like the situation of a do pattern-match failure, thus a monoid
+         that resumes on that input makes sense. Alternative sort of works this
+         way)
+    - some more involved / realistic tests
+        - binary tree
+        - initial benchmarking:
+            - test above on code without sender locking
+    - get complete code coverage into simple test module
+    - make sure we define all convenient exports and wrapper functions
+    - clean up function docs (refs to locks, etc.)
+    - better documentation:
+        - examples
+        - don't make explanations of blocking behavior so prominent.
+    - release 0.1.0 !
+
+ 0.2.0:
+    - structured declarative and unit tests
+    - Performance testing:
+        - test performance vs. straight Chans, etc.
+        - test out overhead of our various locks, especially difference if we
+          scrap the snederLockMutex
+    - some sort of exception handling technique via Actors
+        (look at enumerator package)
+    - investigate ways of positively influencing thread scheduling based on
+       actor work agenda 
+    -other ideas
+        - consider adding a global output chan and actorOutput :: IO String
+        - strict send' function
+        - IO behvior runner on a list for debugging 
+        - looping based on predicate (can we get this from our instances?)
+        -Behavior -> enumeratee package translator (and vice versa)
+    - export some more useful Actors and global thingies
+        - 'loop' which keeps consuming (is this provided by a class?)
+        - function returning an actor to "load balance" inputs over multiple
+          actors
+        - an actor that sends a random stream?
+        - a pre-declared Mailbox for IO?
+    - provide an "adapter" for amazon SQS, allowing truly distributed message
+      passing
+
 
 
 
@@ -106,66 +153,9 @@ CHAN TYPES
 
 
 
-TODO
------
-    x get rid of all locks
-    x re-name 'Actor' to InputStream 
-                or... Mailbox / Messages 
-              'starting' -> spawnReading
-              'spawnIdle -> newMedium..
-    x create simple newtype-wrapped chan pairs (above) and define contravariant
-      and SplitChan, NewChan instances for them
-    x do NewChanSplit class
-    x redefine spawnReading to be polymorphic (also spawn? NO), as well as send
-      (over chan pair)
-    - consider a possible monoid instance for Behavior
-        (We can add it later if we decide it is a true monoid, but not so
-        useful)
-        (some actor model implementations keep a message in the mailbox
-         (whatever that means) when it falls through all case statements. this is
-         kind of like the situation of a do pattern-match failure, thus a monoid
-         that resumes on that input makes sense. Alternative sort of works this
-         way)
-    - some more involved / realistic tests
-        - binary tree
-        - initial benchmarking:
-            - test above on code without sender locking
-    - get complete code coverage into simple test module
-    - make sure we define all convenient exports and wrapper functions
-    - clean up function docs (refs to locks, etc.)
-    - better documentation:
-        - examples
-        - don't make explanations of blocking behavior so prominent.
-    - release 0.1.0 !
-
- 0.2.0:
-    - structured declarative and unit tests
-    - Performance testing:
-        - test performance vs. straight Chans, etc.
-        - test out overhead of our various locks, especially difference if we
-          scrap the snederLockMutex
-    - some sort of exception handling technique via Actors
-        (look at enumerator package)
-    - investigate ways of positively influencing thread scheduling based on
-       actor work agenda 
-    -other ideas
-        - consider adding a global output chan and actorOutput :: IO String
-        - strict send' function
-        - IO behvior runner on a list for debugging 
-        - looping based on predicate (can we get this from our instances?)
-        -Behavior -> enumeratee package translator (and vice versa)
-    - export some useful Actors and global thingies
-        - 'loop' which keeps consuming (is this provided by a class?)
-        - function returning an actor to "load balance" inputs over multiple
-          actors
-        - an actor that sends a random stream?
-        - a pre-declared Mailbox for IO?
-    - provide an "adapter" for amazon SQS, allowing truly distributed message
-      passing
-
 
 ACTIONS
--------
+=======
 
 Functionality is based on our underlying type classes, but users shouldn't need
 to import a bunch of libraries to get basic Behavior building functionality:

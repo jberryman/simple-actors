@@ -3,9 +3,7 @@ module Main
 
 import Control.Concurrent.Actors
 import Control.Concurrent.Chan
-import Control.Concurrent(forkIO,threadDelay)
 import Control.Concurrent.MVar
-import Control.Exception
 import Control.Applicative
 import Control.Monad.IO.Class
 import System.Random
