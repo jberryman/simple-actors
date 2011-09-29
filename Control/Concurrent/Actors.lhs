@@ -20,10 +20,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     Message passing occurs through the medium of a 'Mailbox'/'Messages'
 >     pair. A 'Behavior' can be 'spawn'ed directly, returning its @Mailbox@; or
 >     a chan pair can be first instantiated with 'newMailbox' and then a
->     @Behavior@ run explicitly on a @Messages@ with 'spawnReading'.
+>     @Behavior@ run explicitly on a @Messages@ stream using 'spawnReading'.
 >
 >     The latter is necessary for spawning mutually-communicating actors, and
->     allows one to share a Messages between actors.
+>     allows one to share a stream of messages between actors.
 >     -}
 >     , Messages()
 >     , newMailbox
@@ -118,13 +118,14 @@ TODO
     x do NewChanSplit class
     x redefine spawnReading to be polymorphic (also spawn? NO), as well as send
       (over chan pair)
-    x consider a possible monoid instance for Behavior
+    - consider a possible monoid instance for Behavior
         (We can add it later if we decide it is a true monoid, but not so
         useful)
         (some actor model implementations keep a message in the mailbox
          (whatever that means) when it falls through all case statements. this is
          kind of like the situation of a do pattern-match failure, thus a monoid
-         that resumes on that input makes sense)
+         that resumes on that input makes sense. Alternative sort of works this
+         way)
     - some more involved / realistic tests
         - binary tree
         - initial benchmarking:
@@ -202,7 +203,9 @@ FORKING AND RUNNING ACTORS:
 > -- @Actor@ has already started a @Behavior@, returning when the @Actor@ begins
 > -- the passed @Behavior@.
 > spawnReading :: (MonadIO m, SplitChan x c)=> c i -> Behavior i -> m ()
-> spawnReading str = liftIO . void . forkIO . actorRunner str
+> spawnReading str = liftIO . void . forkIO . actorRunner 
+>     where actorRunner b =
+>               readChan str >>= runBehaviorStep b >>= F.mapM_ actorRunner
 
 
 RUNNING ACTORS
@@ -210,9 +213,11 @@ RUNNING ACTORS
 
 Internal:
 
+> {-
 > actorRunner :: (SplitChan x c)=> c i -> Behavior i -> IO ()
 > actorRunner str b =
 >     readChan str >>= runBehaviorStep b >>= F.mapM_ (actorRunner str)
+> -}
 
 These work in IO, returning () when the actor finishes with done/mzero:
 

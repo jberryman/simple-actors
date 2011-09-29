@@ -12,45 +12,7 @@ import System.Random
 import Control.Monad
 
 main = do
-    --spawnTest
     binaryTreeTest
-
-------------------------------------------------
--- informal test that forkLocking is working:
-spawnTest = do
-    output <- newChan
-    -- fork the actor to send numbers to whomever is listening to 's'. The sends
-    -- inside the forked Actor_ will block until 's' has an Actor
-    (b,a) <- newMailbox
-    spawn_ $ senderTo 1000 b
-
-    -- start a behavior
-    a `spawnReading` sendInputTo output 200
-    -- these will block while beh above is running
-    a `spawnReading` sendInputTo output 200
-    a `spawnReading` sendInputTo output 200
-    a `spawnReading` sendInputTo output 200
-    a `spawnReading` sendInputTo output 200
-
-     -- output should be in order because actor forks waited their turns above:
-    getChanContents output >>=
-        putStrLn . unwords . map show . take 1000
-    putStrLn "DONE!"
-
-
-sendInputTo :: Chan Int -> Int -> Behavior Int
-sendInputTo c n = Behavior $ do
-    i <- receive
-    send c i
-     -- halt if not equal to 1
-    guard (n /= 1)
-    return $ sendInputTo c (n-1)
-
-senderTo :: Int -> Mailbox Int -> Behavior a
-senderTo n c = Behavior $ do
-    send c n
-    guard $ n /= 1
-    return $ senderTo (n-1) c
 
 
 ------------------------------------------------
