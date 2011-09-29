@@ -17,15 +17,15 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >
 >     -- ** Creating Mailboxes and spawning actors
 >     {- | 
->     Message passing occurs through the medium of a 'Mailbox'/'MailStream'
+>     Message passing occurs through the medium of a 'Mailbox'/'Messages'
 >     pair. A 'Behavior' can be 'spawn'ed directly, returning its @Mailbox@; or
 >     a chan pair can be first instantiated with 'newMailbox' and then a
->     @Behavior@ run explicitly on a @MailStream@ with 'spawnReading'.
+>     @Behavior@ run explicitly on a @Messages@ with 'spawnReading'.
 >
 >     The latter is necessary for spawning mutually-communicating actors, and
->     allows one to share a MailStream between actors.
+>     allows one to share a Messages between actors.
 >     -}
->     , MailStream()
+>     , Messages()
 >     , newMailbox
 >     , spawnReading
 >     , spawn
@@ -77,29 +77,29 @@ CHAN TYPES
 > -- streamed in the order they are received.
 > --
 > -- > newMailbox = liftIO newSplitChan
-> newMailbox :: (MonadIO m)=> m (Mailbox a, MailStream a)
+> newMailbox :: (MonadIO m)=> m (Mailbox a, Messages a)
 > newMailbox = liftIO newSplitChan
 >
 > -- | One can 'send' a messages to a @Mailbox@ where it will be processed by an
-> -- actor running on the corresponding 'MailStream'
+> -- actor running on the corresponding 'Messages'
 > newtype Mailbox a = Mailbox { inChan :: InChan a }
 >       deriving (Contravariant)
 >
 > -- | Messages sent to a 'Mailbox' will be streamed in FIFO order to the
-> -- corresponding @MailStream@, an actor can be spawned on a specific
-> -- @MailStream@ using 'spawnReading'. Multiple actors can process input from
-> -- the same @MailStream@.
-> newtype MailStream a = MailStream { outChan :: OutChan a }
+> -- corresponding @Messages@. an actor can be spawned on a specific
+> -- @Messages@ using 'spawnReading'. Multiple actors can process input from
+> -- the same @Messages@.
+> newtype Messages a = Messages { outChan :: OutChan a }
 >       deriving (Functor) 
 >
 > -- Not sure how to derive this or if possible:
-> instance SplitChan Mailbox MailStream where
+> instance SplitChan Mailbox Messages where
 >     readChan = readChan . outChan
 >     writeChan = writeChan . inChan
 >     writeList2Chan = writeList2Chan . inChan
 >
-> instance NewSplitChan Mailbox MailStream where
->     newSplitChan = fmap (\(i,o)-> (Mailbox i, MailStream o)) newSplitChan
+> instance NewSplitChan Mailbox Messages where
+>     newSplitChan = fmap (\(i,o)-> (Mailbox i, Messages o)) newSplitChan
 >
 > ---- TODO: consider defining instance of NewSplitChan if we want 'spawn' to be
 > ---- polymorphic over it. Inwhich case newMailbox = liftIO . newSplitChan
@@ -110,7 +110,7 @@ TODO
 -----
     x get rid of all locks
     x re-name 'Actor' to InputStream 
-                or... Mailbox / MailStream 
+                or... Mailbox / Messages 
               'starting' -> spawnReading
               'spawnIdle -> newMedium..
     x create simple newtype-wrapped chan pairs (above) and define contravariant
@@ -118,15 +118,6 @@ TODO
     x do NewChanSplit class
     x redefine spawnReading to be polymorphic (also spawn? NO), as well as send
       (over chan pair)
-    - change MailStream, Mailbox, newMailbox to something better
-        - Inbox / Outbox
-        - Inbox / MessageStream
-        - InputStream
-        - Stream
-        - MessageStream
-        - MsgStream
-        - 
-    - clean up function docs (refs to locks, etc.)
     x consider a possible monoid instance for Behavior
         (We can add it later if we decide it is a true monoid, but not so
         useful)
@@ -134,14 +125,16 @@ TODO
          (whatever that means) when it falls through all case statements. this is
          kind of like the situation of a do pattern-match failure, thus a monoid
          that resumes on that input makes sense)
-    - better documentation:
-        - examples
-        - don't make explanations of blocking behavior so prominent.
     - some more involved / realistic tests
         - binary tree
         - initial benchmarking:
             - test above on code without sender locking
     - get complete code coverage into simple test module
+    - make sure we define all convenient exports and wrapper functions
+    - clean up function docs (refs to locks, etc.)
+    - better documentation:
+        - examples
+        - don't make explanations of blocking behavior so prominent.
     - release 0.1.0 !
 
  0.2.0:

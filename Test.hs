@@ -12,76 +12,8 @@ import System.Random
 import Control.Monad
 
 main = do
-    recoverTest
     --spawnTest
-    --binaryTreeTest
-
-------------------------------------------------
--- A test of actor resumption and recovery
-recoverTest = do
-{-
-    ----alternative instance
-    out <- newChan
-    m <- spawn $ altBehavior out
-    -- this should block, but doesn't. Why?
-    --mapM_ (send m) [1..10]
-    mapM_ (send m) [1..5]
-    getChanContents out >>= mapM_ putStrLn . take 11
-    -- this blocks:
-    --send m 0
--}
--- TODO: figure out why we get a deadlock here:
-    ----starting queueing
-    out <- newChan
-    --threadDelay 999999
-    t5 <- spawn takes5
-    --threadDelay 999999
-    (b,a) <- spawnIdle
-    --threadDelay 999999
-    spawn_ (Behavior $ mapM_ (send b) [1..] >> mzero)
-
-    --threadDelay 999999
-    putStrLn "first starting"
-    a `starting` naiveSender out t5
-
-    --threadDelay 999999
-    putStrLn "second starting"
-    a `starting` recoverFromNaive out
-    
-    --threadDelay 999999
-    getChanContents out >>= mapM_ putStrLn
-
-    
-
-altBehavior out = Behavior $ 
-        do send out "first started" 
-           n <- receive
-           guard (n < 5)
-           send out ("first received: "++show n)
-           return $ altBehavior out
-    <|> do send out "second started"
-           n <- receive
-           send out ("second received: "++show n++", exiting")
-           stop
-
--- for testing recovery with `strarting` queueuing:
-takes5 = Behavior $ do
-    n <- receive
-    guard (n < 6)
-    return takes5
-
--- expects receiver to stay receiving forever:
-naiveSender out m = Behavior $ do
-    n <- receive 
-    send out $ "naively sending: "++(show n)
-    send m n
-    return $ naiveSender out m
-
-recoverFromNaive out = Behavior $ do
-    n <- receive 
-    send out $ "recovered on input: " ++ show n
-    stop
-
+    binaryTreeTest
 
 ------------------------------------------------
 -- informal test that forkLocking is working:
@@ -89,16 +21,16 @@ spawnTest = do
     output <- newChan
     -- fork the actor to send numbers to whomever is listening to 's'. The sends
     -- inside the forked Actor_ will block until 's' has an Actor
-    (b,a) <- spawnIdle
+    (b,a) <- newMailbox
     spawn_ $ senderTo 1000 b
 
     -- start a behavior
-    a `starting` sendInputTo output 200
+    a `spawnReading` sendInputTo output 200
     -- these will block while beh above is running
-    a `starting` sendInputTo output 200
-    a `starting` sendInputTo output 200
-    a `starting` sendInputTo output 200
-    a `starting` sendInputTo output 200
+    a `spawnReading` sendInputTo output 200
+    a `spawnReading` sendInputTo output 200
+    a `spawnReading` sendInputTo output 200
+    a `spawnReading` sendInputTo output 200
 
      -- output should be in order because actor forks waited their turns above:
     getChanContents output >>=
