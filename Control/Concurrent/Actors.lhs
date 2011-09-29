@@ -118,7 +118,9 @@ TODO
     x do NewChanSplit class
     x redefine spawnReading to be polymorphic (also spawn? NO), as well as send
       (over chan pair)
-    - change MailStream to something better
+    - change MailStream, Mailbox, newMailbox to something better
+        - Inbox / Outbox
+        - Inbox / MessageStream
         - InputStream
         - Stream
         - MessageStream
@@ -135,9 +137,6 @@ TODO
     - better documentation:
         - examples
         - don't make explanations of blocking behavior so prominent.
-    x test if we can recover from deadlocked actor using 'starting' queuing
-      behavior
-      * not really, shit is so broken
     - some more involved / realistic tests
         - binary tree
         - initial benchmarking:
