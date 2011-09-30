@@ -37,6 +37,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , runBehavior_
 >     , runBehavior 
 >
+>     -- * Useful predefined @Behavior@s
+>     , printB
+>     , putStrB
+>
 >     ) where
 >
 > import Control.Monad
@@ -68,9 +72,7 @@ work with GHCi:
 
 TODO
 -----
-    - consider a possible monoid instance for Behavior
-        (We can add it later if we decide it is a true monoid, but not so
-        useful)
+    - try out an instance for Monoid for Behavior
         (some actor model implementations keep a message in the mailbox
          (whatever that means) when it falls through all case statements. this is
          kind of like the situation of a do pattern-match failure, thus a monoid
@@ -238,3 +240,22 @@ FORKING ACTORS
 > -- ()s to the former.
 > spawn_ :: (MonadIO m)=> Behavior () -> m ()
 > spawn_ = liftIO . void . forkIO . runBehavior_  
+
+
+
+USEFUL GENERAL BEHAVIORS
+========================
+
+> -- | Prints all messages to STDOUT in the order they are received, optionally 
+> -- 'stop'-ing after 'receive'-ing @n@ inputs
+> printB :: (Show s, Num n)=> Maybe n -> Behavior s
+> printB = contramap (unlines . return . show) . putStrB
+
+> -- | similar to 'printB', but does 'putStr' on input Strings it receives
+> -- rather than printing each on a new line.
+> putStrB :: (Num n)=> Maybe n -> Behavior String
+> putStrB mn = Behavior $ do
+>     guard $ maybe True (/=0) mn
+>     s <- receive
+>     liftIO $ putStr s
+>     return $ putStrB $ fmap (subtract 1) mn

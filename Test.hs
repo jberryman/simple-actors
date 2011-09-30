@@ -65,8 +65,11 @@ initTree = spawn . treeNode Nothing Nothing
 ----
 
 binaryTreeTest = do
-    -- all output by forked actors goes into this Chan:
-    output <- newChan
+    v <- newEmptyMVar
+    -- spawn a special actor that writes the first 'n' messages it receives to
+    -- STDOUT and then fills an MVar
+    output <- spawn $ 
+        printB (26*1000) <|> send () v  -- `mplus` ? or we should make these into Actions ?
     -- create a new tree from an initial value
     root <- initTree 0
     -- FORK 10 WRITERS TO THE TREE

@@ -32,6 +32,7 @@ over inputs:
 > 
 > instance Contravariant Behavior where
 >     contramap f (Behavior a) = Behavior $ f ^>> (contramap f <$> a)
+>     --contramap f = Behavior . withReaderT f . fmap (contramap f) . headAction
 > 
 > -- This can probably be a monoid but it's a bit hokey
 > --instance Monoid ..
