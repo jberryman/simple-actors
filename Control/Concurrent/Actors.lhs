@@ -14,26 +14,30 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , Mailbox()
 >     , send
 >     , receive
->
->     -- ** Creating Mailboxes and spawning actors
+>     -- ** Spawning actors
 >     {- | 
->     Message passing occurs through the medium of a 'Mailbox'/'Messages'
->     pair. A 'Behavior' can be 'spawn'ed directly, returning its @Mailbox@; or
->     a chan pair can be first instantiated with 'newMailbox' and then a
->     @Behavior@ run explicitly on a @Messages@ stream using 'spawnReading'.
->
->     The latter is necessary for spawning mutually-communicating actors, and
->     allows one to share a stream of messages between actors.
+>     The 'spawn' function will be sufficient for forking actors in most cases,
+>     but launching mutually-communicating actors presents a problem.
+>     .
+>     In cases where a 'Behavior' needs access to its own 'Mailbox' or that of 
+>     an actor that must be forked later, the 'MonadFix' instance should be
+>     used. GHC\'s \"Recursive Do\" make this especially easy:
+>     .
+>     > {-# LANGUAGE DoRec #-}
+>     > beh = Behavior $ do
+>     >     i <- receive
+>     >     rec b1 <- spawn (senderTo b2)
+>     >         b2 <- spawn (senderTo b1)
+>     >         b3 <- spawn (senderTo b3)
+>     >     abort
 >     -}
->     , Messages()
->     , newMailbox
->     , spawnReading
 >     , spawn
->     -- ** Exiting an actor computation
->     , stop
+>     , spawn_
+>     , spawnReading
+>     -- ** Aborting an actor computation
+>     , abort
 >
 >     -- * Utility functions
->     , spawn_
 >     , runBehavior_
 >     , runBehavior 
 >
@@ -121,23 +125,12 @@ TODO
 CHAN TYPES
 ==========
 
-> -- | Instantiate a new @Mailbox@ where actors can 'send' messages, and a
-> -- corresponding message stream that an actor can process. Messages are
-> -- streamed in the order they are received.
-> --
-> -- > newMailbox = liftIO newSplitChan
-> newMailbox :: (MonadIO m)=> m (Mailbox a, Messages a)
-> newMailbox = liftIO newSplitChan
->
 > -- | One can 'send' a messages to a @Mailbox@ where it will be processed by an
-> -- actor running on the corresponding 'Messages'
+> -- actor\'s defined 'Behavior'
 > newtype Mailbox a = Mailbox { inChan :: InChan a }
 >       deriving (Contravariant)
 >
-> -- | Messages sent to a 'Mailbox' will be streamed in FIFO order to the
-> -- corresponding @Messages@. an actor can be spawned on a specific
-> -- @Messages@ using 'spawnReading'. Multiple actors can process input from
-> -- the same @Messages@.
+> -- internal:
 > newtype Messages a = Messages { outChan :: OutChan a }
 >       deriving (Functor) 
 >
@@ -150,8 +143,6 @@ CHAN TYPES
 > instance NewSplitChan Mailbox Messages where
 >     newSplitChan = fmap (\(i,o)-> (Mailbox i, Messages o)) newSplitChan
 >
-> ---- TODO: consider defining instance of NewSplitChan if we want 'spawn' to be
-> ---- polymorphic over it. Inwhich case newMailbox = liftIO . newSplitChan
 
 
 
@@ -164,9 +155,9 @@ to import a bunch of libraries to get basic Behavior building functionality:
 
 > -- | Aborts an Actor computation:
 > -- 
-> -- > stop = mzero
-> stop :: Action i a
-> stop = mzero
+> -- > abort = mzero
+> abort :: Action i a
+> abort = mzero
 
 
 > -- | Read the current message to be processed. /N.B/ the value returned here
@@ -191,9 +182,8 @@ FORKING AND RUNNING ACTORS:
 ===========================
 
 
-> -- | Enqueue a 'Behavior' for an Actor to perform. This will block while the
-> -- @Actor@ has already started a @Behavior@, returning when the @Actor@ begins
-> -- the passed @Behavior@.
+> -- | Like 'spawn' but allows one to specify explicitly the chan for an actor
+> -- to read inputs from
 > spawnReading :: (MonadIO m, SplitChan x c)=> c i -> Behavior i -> m ()
 > spawnReading str = liftIO . void . forkIO . actorRunner 
 >     where actorRunner b =
@@ -202,14 +192,6 @@ FORKING AND RUNNING ACTORS:
 
 RUNNING ACTORS
 --------------
-
-Internal:
-
-> {-
-> actorRunner :: (SplitChan x c)=> c i -> Behavior i -> IO ()
-> actorRunner str b =
->     readChan str >>= runBehaviorStep b >>= F.mapM_ (actorRunner str)
-> -}
 
 These work in IO, returning () when the actor finishes with done/mzero:
 
@@ -231,7 +213,7 @@ FORKING ACTORS
 > -- | Fork an actor 'starting' a 'Behavior' directly, returning its input 'Mailbox'
 > spawn :: (MonadIO m)=> Behavior i -> m (Mailbox i)
 > spawn b = do
->     (m,s) <- newMailbox
+>     (m,s) <- liftIO newSplitChan
 >     spawnReading s b
 >     return m
 >
@@ -247,7 +229,7 @@ USEFUL GENERAL BEHAVIORS
 ========================
 
 > -- | Prints all messages to STDOUT in the order they are received, optionally 
-> -- 'stop'-ing after 'receive'-ing @n@ inputs
+> -- 'abort'-ing after 'receive'-ing @n@ inputs
 > printB :: (Show s, Num n)=> Maybe n -> Behavior s
 > printB = contramap (unlines . return . show) . putStrB
 
