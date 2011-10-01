@@ -230,6 +230,8 @@ USEFUL GENERAL BEHAVIORS
 
 > -- | Prints all messages to STDOUT in the order they are received, optionally 
 > -- 'abort'-ing after 'receive'-ing @n@ inputs
+> --
+> -- > printB = contramap (unlines . return . show) . putStrB
 > printB :: (Show s, Num n)=> Maybe n -> Behavior s
 > printB = contramap (unlines . return . show) . putStrB
 
