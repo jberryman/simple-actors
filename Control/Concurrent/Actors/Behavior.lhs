@@ -1,4 +1,6 @@
 > {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+> -- Since we don't get a MonadFix instance for MaybeT from transformers:
+> {-# OPTIONS_GHC -fno-warn-orphans #-}
 > module Control.Concurrent.Actors.Behavior
 >     where
 > 
@@ -13,9 +15,9 @@ These imports are mostly for all the instances for Action that we define:
 > import Control.Monad.Reader.Class
 > import Control.Monad.Trans.Maybe
 > import Control.Monad.IO.Class
+> import Control.Monad.Fix
 > import Control.Applicative
 > import Control.Monad
-> import Control.Monad.Trans.Class
 >
 > import Control.Arrow
 > import qualified Control.Category as C
@@ -62,8 +64,13 @@ will be useful:
 > -- randomness.
 > newtype Action i a = Action { readerT :: ReaderT i (MaybeT IO) a }
 >         deriving (Monad, MonadIO, MonadPlus, MonadReader i,
->                   Functor, Applicative, Alternative)
+>                   Functor, Applicative, Alternative, MonadFix)
 > 
+> -- if this is functional, it should be in the 'transformers' package. From:
+> --    http://www.haskell.org/pipermail/libraries/2011-April/016201.html
+> instance (MonadFix m) => MonadFix (MaybeT m) where
+>    mfix f = MaybeT $ mfix (runMaybeT . f . unJust)
+>      where unJust = maybe (error "mfix MaybeT: Nothing") id
 
 Some helpers for wrapping / unwrapping:
 
