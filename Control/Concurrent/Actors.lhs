@@ -13,7 +13,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     -- ** Message passing
 >     , Mailbox()
 >     , send
->     , receive
+>     , received
 >     -- ** Spawning actors
 >     {- | 
 >     The 'spawn' function will be sufficient for forking actors in most cases,
@@ -25,7 +25,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     .
 >     > {-# LANGUAGE DoRec #-}
 >     > beh = Behavior $ do
->     >     i <- receive
+>     >     i <- received
 >     >     rec b1 <- spawn (senderTo b2)
 >     >         b2 <- spawn (senderTo b1)
 >     >         b3 <- spawn (senderTo b3)
@@ -76,12 +76,14 @@ work with GHCi:
 
 TODO
 -----
+    - do a DoRec test that involves failure and mutually-communicating actors
     - try out an instance for Monoid for Behavior
         (some actor model implementations keep a message in the mailbox
          (whatever that means) when it falls through all case statements. this is
          kind of like the situation of a do pattern-match failure, thus a monoid
          that resumes on that input makes sense. Alternative sort of works this
          way)
+    - use 'printB' instead of Chans in tree test
     - some more involved / realistic tests
         - binary tree
         - initial benchmarking:
@@ -160,12 +162,12 @@ to import a bunch of libraries to get basic Behavior building functionality:
 > abort = mzero
 
 
-> -- | Read the current message to be processed. /N.B/ the value returned here
-> -- does not change between calls in the same 'Action'.
+> -- | Return the message received to start this 'Action' block. /N.B/ the value
+> -- returned here does not change between calls in the same 'Action'.
 > --
-> -- > receive = ask  -- ...and ye shall receive
-> receive :: Action i i
-> receive = ask
+> -- > received = ask
+> received :: Action i i
+> received = ask
 
 
 > -- | Send a message asynchronously. This can be used to send messages to other
@@ -182,8 +184,8 @@ FORKING AND RUNNING ACTORS:
 ===========================
 
 
-> -- | Like 'spawn' but allows one to specify explicitly the chan for an actor
-> -- to read inputs from
+> -- | Like 'spawn' but allows one to specify explicitly the channel from which
+> -- an actor should take its input.
 > spawnReading :: (MonadIO m, SplitChan x c)=> c i -> Behavior i -> m ()
 > spawnReading str = liftIO . void . forkIO . actorRunner 
 >     where actorRunner b =
@@ -210,16 +212,18 @@ These work in IO, returning () when the actor finishes with done/mzero:
 FORKING ACTORS
 --------------
 
-> -- | Fork an actor 'starting' a 'Behavior' directly, returning its input 'Mailbox'
+> -- | Fork an 'actor' performing the specified 'Behavior'. /N.B./ an actor 
+> -- begins execution of its 'headBehavior' only after a mesage has been 
+> -- received. See 'spawn_'.
 > spawn :: (MonadIO m)=> Behavior i -> m (Mailbox i)
 > spawn b = do
 >     (m,s) <- liftIO newSplitChan
 >     spawnReading s b
 >     return m
 >
-> -- | fork a looping computation which starts immediately. Equivalent to
+> -- | Fork a looping computation which starts immediately. Equivalent to
 > -- launching a @Behavior ()@ and another 'Behavior' that sends an infinite stream of
-> -- ()s to the former.
+> -- ()s to the former\'s 'Mailbox'.
 > spawn_ :: (MonadIO m)=> Behavior () -> m ()
 > spawn_ = liftIO . void . forkIO . runBehavior_  
 
@@ -229,7 +233,7 @@ USEFUL GENERAL BEHAVIORS
 ========================
 
 > -- | Prints all messages to STDOUT in the order they are received, optionally 
-> -- 'abort'-ing after 'receive'-ing @n@ inputs
+> -- 'abort'-ing after @n@ inputs are 'received'.
 > --
 > -- > printB = contramap (unlines . return . show) . putStrB
 > printB :: (Show s, Num n)=> Maybe n -> Behavior s
@@ -240,6 +244,6 @@ USEFUL GENERAL BEHAVIORS
 > putStrB :: (Num n)=> Maybe n -> Behavior String
 > putStrB mn = Behavior $ do
 >     guard $ maybe True (/=0) mn
->     s <- receive
+>     s <- received
 >     liftIO $ putStr s
 >     return $ putStrB $ fmap (subtract 1) mn

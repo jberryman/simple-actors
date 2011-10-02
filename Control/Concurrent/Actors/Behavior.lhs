@@ -29,7 +29,7 @@ A Behavior wraps an Action i a, into a list-like sequence of actions to perform
 over inputs:
 
 > -- | An 'Action' that returns the @Action@s to be performed on the /next/
-> -- input is a @Behavior@.
+> -- input is a @Behavior@. Actors are created by 'spawn'ing a @Behavior@. 
 > newtype Behavior i = Behavior { headAction :: Action i (Behavior i) }
 > 
 > instance Contravariant Behavior where
@@ -48,11 +48,11 @@ will be useful:
 
 > -- | In the Actor Model, at each step an actor...
 > --
-> --     - 'receive's an input to process
+> --     - processes a single 'received' message
 > --     
-> --     - may spawn new 'Actor's
+> --     - may spawn new actors
 > --     
-> --     - may 'send' messages to other Actors
+> --     - may 'send' messages to other actors
 > --     
 > --     - 'return's the 'Behavior' to be performed on the /next/ input
 > --
