@@ -1,5 +1,8 @@
+{-# LANGUAGE DoRec #-}
 module Main
     where
+
+import Control.Concurrent
 
 import Control.Concurrent.Actors
 import Control.Concurrent.Chan
@@ -10,7 +13,42 @@ import System.Random
 import Control.Monad
 
 main = do
-    binaryTreeTest
+    doRecTest
+    --binaryTreeTest
+
+
+------------------------------------------------
+-- Testing the MonadFix instance for Actions:
+--
+doRecTest = do
+    putStrLn "Start"
+    c <- newChan
+    msgs <- getChanContents c
+    --
+    -- mutually-communicating actors:
+    rec b1 <- spawn $ 
+                Behavior $ do
+                      send b2 "1"
+                      m <- received
+                      send c $ "1 received "++m
+                      abort
+        b2 <- spawn $ 
+                Behavior $ do
+                      send b3 "2" 
+                      m <- received
+                      send c $ "2 received "++m
+                      abort
+        b3 <- spawn $ 
+                Behavior $ do
+                      send b1 "3" 
+                      m <- received
+                      send c $ "3 received "++m
+                      abort
+    --
+    -- sending the first message to "b3" starts the chain above:
+    send b3 "main"
+    mapM_ putStrLn $ take 3 msgs 
+    putStrLn "done"
 
 
 ------------------------------------------------
@@ -41,7 +79,7 @@ addValue a nd = liftIO $ do
 -- The behavior then recurses, closing over any newly created child node.
 treeNode :: Maybe Node -> Maybe Node -> Int -> Behavior Message
 treeNode l r a = Behavior $ do
-     m@(a',v) <- receive
+     m@(a',v) <- received
      let addToChild = fmap Just . maybe newNode passToChild
          newNode = send v True >> initTree a'
          passToChild c = c <$ send c m
