@@ -76,7 +76,6 @@ work with GHCi:
 
 TODO
 -----
-    - do a DoRec test that involves failure and mutually-communicating actors
     - try out an instance for Monoid for Behavior
         (some actor model implementations keep a message in the mailbox
          (whatever that means) when it falls through all case statements. this is

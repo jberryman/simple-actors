@@ -20,6 +20,9 @@ main = do
 ------------------------------------------------
 -- Testing the MonadFix instance for Actions:
 --
+--   I don't fully understand MonadFix, or whether there is a way to have it not
+--   call 'error' in the MaybeT instance, but that is apparently correct
+--   behavior.:
 doRecTest = do
     putStrLn "Start"
     c <- newChan
