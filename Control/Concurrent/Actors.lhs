@@ -76,12 +76,6 @@ work with GHCi:
 
 TODO
 -----
-    - try out an instance for Monoid for Behavior
-        (some actor model implementations keep a message in the mailbox
-         (whatever that means) when it falls through all case statements. this is
-         kind of like the situation of a do pattern-match failure, thus a monoid
-         that resumes on that input makes sense. Alternative sort of works this
-         way)
     - use 'printB' instead of Chans in tree test
     - some more involved / realistic tests
         - binary tree

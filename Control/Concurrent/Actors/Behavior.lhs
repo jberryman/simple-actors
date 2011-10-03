@@ -21,6 +21,7 @@ These imports are mostly for all the instances for Action that we define:
 >
 > import Control.Arrow
 > import qualified Control.Category as C
+> import Data.Monoid
 >
 > import Data.Functor.Contravariant
 
@@ -35,10 +36,19 @@ over inputs:
 > instance Contravariant Behavior where
 >     contramap f (Behavior a) = Behavior $ f ^>> (contramap f <$> a)
 >     --contramap f = Behavior . withReaderT f . fmap (contramap f) . headAction
-> 
-> -- This can probably be a monoid but it's a bit hokey
-> --instance Monoid ..
-> 
+>
+
+This is essentially a marriage of the Monoid [] instance with Action's
+Alternative instance, and I am mostly convinced it is right and has utility:
+
+> -- | @b1 `mplus` b2@ has the 'headAction' of @b2@ begin where the 'abort'
+> -- occured in @b1@, i.e. @b2@\'s first input will be the final input handed to
+> -- @b1@.
+> instance Monoid (Behavior i) where
+>     mempty = Behavior mzero
+>     mappend (Behavior a1) b2@(Behavior a2) = Behavior $ 
+>         -- is this the best way of defining this?:
+>         (flip mappend b2 <$> a1) <|> a2
 
 
 Defining Action as a Reader / Maybe stack lets us have a nice EDSL syntax for

@@ -12,10 +12,45 @@ import Control.Monad.IO.Class
 import System.Random
 import Control.Monad
 
+import Data.Monoid
+
 main = do
-    doRecTest
+    monoidTest
+    --doRecTest
     --binaryTreeTest
 
+------------------------------------------------
+-- Testing Monoid instance and pattern match fail in do:
+monoidTest = do
+    c <- newChan
+    let beh = monoid1 c `mappend` monoid2 c
+
+    -- test guard
+    cs <-  getChanContents c
+    b <- spawn beh
+    mapM_ (send b) $ map Just [1..5]
+    mapM_ putStrLn $ take 5 cs
+
+    -- test pattern match fail
+    cs' <-  getChanContents c
+    b' <- spawn beh
+    mapM_ (send b') [Just 1, Nothing, Just 3, Nothing, Just 5]
+    mapM_ putStrLn $ take 5 cs'
+
+
+-- aborts on numbers gt 2, and on Nothing
+monoid1 c = Behavior $ do
+    (Just n) <- received
+    guard (n<3)
+    send c $ "monoid1: "++show n
+    return (monoid1 c)
+
+-- writes received number to chan or 0 if given Nothing:
+monoid2 c = Behavior $ do
+    mn <- received
+    send c $ ("monoid2: "++) $ maybe "0" show mn
+    return (monoid2 c)
+    
 
 ------------------------------------------------
 -- Testing the MonadFix instance for Actions:
