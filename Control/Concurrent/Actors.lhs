@@ -14,6 +14,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , Mailbox()
 >     , send
 >     , received
+>     , guardReceived
 >     -- ** Spawning actors
 >     {- | 
 >     The 'spawn' function will be sufficient for forking actors in most cases,
@@ -80,7 +81,7 @@ work with GHCi:
 
 TODO
 -----
-    - add guardReceived function
+    - add ArrowLoop instance matching Kliesli
     - use 'printB' instead of Chans in tree test
     - some more involved / realistic tests
         - binary tree
@@ -168,6 +169,11 @@ to import a bunch of libraries to get basic Behavior building functionality:
 > received :: Action i i
 > received = ask
 
+> -- | Return received message matching predicate, otherwise 'abort' the actor.
+> --
+> -- > guardReceived p = ask >>= \i-> guard (p i) >> return i
+> guardReceived :: (i -> Bool) -> Action i i
+> guardReceived p = ask >>= \i-> guard (p i) >> return i
 
 > -- | Send a message asynchronously. This can be used to send messages to other
 > -- Actors via a 'Mailbox', or used as a means of output from the Actor system
