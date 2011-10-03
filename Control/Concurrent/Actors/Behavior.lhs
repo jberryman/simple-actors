@@ -77,6 +77,9 @@ will be useful:
 >                   Functor, Applicative, Alternative, MonadFix)
 > 
 
+
+------ CPP MACROS ------
+
 This should end up in the next version of 'transformers':
    http://www.haskell.org/pipermail/libraries/2011-April/016201.html
 
@@ -85,6 +88,8 @@ This should end up in the next version of 'transformers':
 >    mfix f = MaybeT $ mfix (runMaybeT . f . unJust)
 >      where unJust = maybe (error "mfix MaybeT: Nothing") id
 #endif
+
+------------------------
 
 
 Some helpers for wrapping / unwrapping:
@@ -124,4 +129,9 @@ Kleisli is ReaderT, so these are basically cribbed from its instances.
 > instance ArrowZero Action where
 >     zeroArrow = action $ const mzero
 > 
-> 
+> -- inspired by MonadFix instance. I'm not sure if this actually works, but
+> -- it's copied from the Kleisli definition
+> instance ArrowLoop Action where
+>    loop af = action (liftM fst . mfix . f')
+>        where f' x y = f (x, snd y)
+>              f = runAction af

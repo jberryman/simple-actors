@@ -58,6 +58,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Control.Monad.IO.Class
 > import Control.Concurrent(forkIO)
 >
+> -- from the contravariant package 
 > import Data.Functor.Contravariant
 > -- from the chan-split package
 > import Control.Concurrent.Chan.Split
