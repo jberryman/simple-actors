@@ -26,9 +26,13 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     > {-# LANGUAGE DoRec #-}
 >     > beh = Behavior $ do
 >     >     i <- received
+>     >     -- similar to the scoping in a "let" block:
 >     >     rec b1 <- spawn (senderTo b2)
 >     >         b2 <- spawn (senderTo b1)
 >     >         b3 <- spawn (senderTo b3)
+>     >     -- send initial messages to actors spawned above:
+>     >     send b3 i
+>     >     send "first" b2
 >     >     abort
 >     -}
 >     , spawn
@@ -76,6 +80,7 @@ work with GHCi:
 
 TODO
 -----
+    - add guardReceived function
     - use 'printB' instead of Chans in tree test
     - some more involved / realistic tests
         - binary tree
@@ -86,10 +91,14 @@ TODO
     - clean up function docs (refs to locks, etc.)
     - better documentation:
         - examples
-        - don't make explanations of blocking behavior so prominent.
     - release 0.1.0 !
 
  0.2.0:
+    - look into whether we should use Text lib instead of strings?
+      OverloadedStrings?
+        -import Data.String, make polymorphic over IsString
+        -test if this lets us use it in importing module w/ OverloadedStrings
+        extension
     - structured declarative and unit tests
     - Performance testing:
         - test performance vs. straight Chans, etc.
@@ -99,12 +108,9 @@ TODO
         (look at enumerator package)
     - investigate ways of positively influencing thread scheduling based on
        actor work agenda 
-    -other ideas
-        - consider adding a global output chan and actorOutput :: IO String
-        - strict send' function
-        - IO behvior runner on a list for debugging 
-        - looping based on predicate (can we get this from our instances?)
-        -Behavior -> enumeratee package translator (and vice versa)
+    - strict send' function
+    -Behavior -> enumeratee package translator (and vice versa)
+        (maybe letting us use useful enumerators)
     - export some more useful Actors and global thingies
         - 'loop' which keeps consuming (is this provided by a class?)
         - function returning an actor to "load balance" inputs over multiple
