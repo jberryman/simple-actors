@@ -105,7 +105,9 @@ Some helpers for wrapping / unwrapping:
 > runBehaviorStep = fmap runMaybeT . runAction . headAction
 
 
-Kleisli is ReaderT, so these are basically cribbed from its instances. 
+Kleisli is ReaderT, so these are basically cribbed from its instances. It's a
+shame ReaderT's type arguments are the way they are or we could have derived
+this:
 
 > instance C.Category Action where
 >     id = ask

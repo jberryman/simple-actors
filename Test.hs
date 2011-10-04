@@ -15,9 +15,9 @@ import Control.Monad
 import Data.Monoid
 
 main = do
-    monoidTest
+    --monoidTest
     --doRecTest
-    --binaryTreeTest
+    binaryTreeTest
 
 ------------------------------------------------
 -- Testing Monoid instance and pattern match fail in do:
@@ -62,7 +62,7 @@ doRecTest = do
     putStrLn "Start"
     c <- newChan
     msgs <- getChanContents c
-    --
+   
     -- mutually-communicating actors:
     rec b1 <- spawn $ 
                 Behavior $ do
@@ -82,8 +82,8 @@ doRecTest = do
                       m <- received
                       send c $ "3 received "++m
                       abort
-    --
-    -- sending the first message to "b3" starts the chain above:
+    
+    -- sending the first message to "b3" starts the chain:
     send b3 "main"
     mapM_ putStrLn $ take 3 msgs 
     putStrLn "done"
@@ -129,26 +129,27 @@ treeNode l r a = Behavior $ do
           GT -> (\r'-> treeNode l r' a) <$> addToChild r
 
 
-
 -- create a new tree from an initial element. used to make branches internally
 initTree :: MonadIO m=> Int -> m Node
 initTree = spawn . treeNode Nothing Nothing
     
-
 
 ----
 ---- The following is all code to test the binary tree actor we implemented above:
 ----
 
 binaryTreeTest = do
-    -- all output by forked actors goes into this Chan:
-    output <- newChan
+    -- all output by forked actors is printed by this actor:
+    v <- newEmptyMVar
+    output <- spawn $ 
+        printB (Just (26*1000)) `mappend` signalB v
     -- create a new tree from an initial value
     root <- initTree 0
-    -- FORK 10 WRITERS TO THE TREE
+    -- fork 26 actors writing random vals to tree:
     mapM_ (spawn_ . writeRandsTo root output 1000) ['a'..'z']
-    -- print ourput from chan:
-    getChanContents output >>= mapM (putStrLn . show) . take (26*1000)
+    -- exit when threads finish
+    takeMVar v
+    
 
 
 
@@ -162,7 +163,7 @@ type OutMessage = (Name,Bool,Int)
 
 
 -- we also use an Actor to write our values to the tree
-writeRandsTo :: RootNode -> Chan OutMessage -> Int -> Name -> Behavior a
+writeRandsTo :: RootNode -> Mailbox OutMessage -> Int -> Name -> Behavior a
 writeRandsTo root out n name = Behavior $ do
     guard (n /= 0)
     -- a random stream of ints:

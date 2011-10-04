@@ -49,6 +49,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     -- * Useful predefined @Behavior@s
 >     , printB
 >     , putStrB
+>     , signalB
 >
 >     ) where
 >
@@ -82,13 +83,9 @@ work with GHCi:
 
 TODO
 -----
-    - add ArrowLoop instance matching Kliesli
-    - use 'printB' instead of Chans in tree test
     - some more involved / realistic tests
         - binary tree
-        - initial benchmarking:
-            - test above on code without sender locking
-    - get complete code coverage into simple test module
+        - get complete code coverage into simple test module
     - make sure we define all convenient exports and wrapper functions
     - clean up function docs (refs to locks, etc.)
     - better documentation:
@@ -96,6 +93,8 @@ TODO
     - release 0.1.0 !
 
  0.2.0:
+    - better method for waiting for threads to complete. should probbly use
+       actor message passing
     - look into whether we should use Text lib instead of strings?
       OverloadedStrings?
         -import Data.String, make polymorphic over IsString
@@ -253,3 +252,10 @@ USEFUL GENERAL BEHAVIORS
 >     s <- received
 >     liftIO $ putStr s
 >     return $ putStrB $ fmap (subtract 1) mn
+
+> -- | Sends a @()@ to the passed chan. This is useful with 'mappend' for
+> -- signalling the end of some other 'Behavior'.
+> --
+> -- > signalB = Behavior . flip send ()
+> signalB :: (SplitChan c x)=> c () -> Behavior i
+> signalB = Behavior . (>> abort) . flip send ()
