@@ -15,28 +15,33 @@ import Control.Monad
 import Data.Monoid
 
 main = do
-    --monoidTest
+    monoidTest
     --doRecTest
-    binaryTreeTest
+    --binaryTreeTest
 
 ------------------------------------------------
 -- Testing Monoid instance and pattern match fail in do:
+
 monoidTest = do
-    c <- newChan
+    -- spawn printer that writes to chan when done:
+    s <- newChan
+    let print5 = printB 5 `mappend` signalB s
+    -- ignore the final value received by first print5, by using constB:
+    c <- spawn $ print5 `mappend` constB print5
+
+    -- here we want 'monoid2' to pick up 'monoid1's last input, so we don't use
     let beh = monoid1 c `mappend` monoid2 c
 
     -- test guard
-    cs <-  getChanContents c
     b <- spawn beh
     mapM_ (send b) $ map Just [1..5]
-    mapM_ putStrLn $ take 5 cs
-
+    readChan s --wait for printer
+    
     -- test pattern match fail
-    cs' <-  getChanContents c
     b' <- spawn beh
     mapM_ (send b') [Just 1, Nothing, Just 3, Nothing, Just 5]
-    mapM_ putStrLn $ take 5 cs'
-
+    readChan s 
+    
 
 -- aborts on numbers gt 2, and on Nothing
 monoid1 c = Behavior $ do
@@ -142,7 +147,7 @@ binaryTreeTest = do
     -- all output by forked actors is printed by this actor:
     v <- newEmptyMVar
     output <- spawn $ 
-        printB (Just (26*1000)) `mappend` signalB v
+        printB (26*1000) `mappend` signalB v
     -- create a new tree from an initial value
     root <- initTree 0
     -- fork 26 actors writing random vals to tree:

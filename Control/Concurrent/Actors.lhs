@@ -50,6 +50,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , printB
 >     , putStrB
 >     , signalB
+>     , constB
 >
 >     ) where
 >
@@ -58,6 +59,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import qualified Data.Foldable as F
 > import Control.Monad.IO.Class
 > import Control.Concurrent(forkIO)
+> import Data.Monoid
 >
 > -- from the contravariant package 
 > import Data.Functor.Contravariant
@@ -83,6 +85,8 @@ work with GHCi:
 
 TODO
 -----
+    - abort = yield ? As in giving up the input val. Yes! especially since that
+      is the intended purpose of 'yield' in enumerator package.
     - some more involved / realistic tests
         - binary tree
         - get complete code coverage into simple test module
@@ -237,25 +241,42 @@ FORKING ACTORS
 USEFUL GENERAL BEHAVIORS
 ========================
 
-> -- | Prints all messages to STDOUT in the order they are received, optionally 
-> -- 'abort'-ing after @n@ inputs are 'received'.
-> --
-> -- > printB = contramap (unlines . return . show) . putStrB
-> printB :: (Show s, Num n)=> Maybe n -> Behavior s
+> -- | Prints all messages to STDOUT in the order they are received,
+> -- 'abort'-ing /immediately/ after @n@ inputs are printed.
+> printB :: (Show s, Num n)=> n -> Behavior s
 > printB = contramap (unlines . return . show) . putStrB
 
-> -- | similar to 'printB', but does 'putStr' on input Strings it receives
-> -- rather than printing each on a new line.
-> putStrB :: (Num n)=> Maybe n -> Behavior String
-> putStrB mn = Behavior $ do
->     guard $ maybe True (/=0) mn
+We want to abort right after printing the last input to print. This lets us
+compose with signalB for instance:
+
+    write5ThenExit = putStrB 5 `mappend` signalB c
+
+and the above will signal as soon as it has printed the last message. If we try
+to define this in a more traditional recursive way the signal above would only
+happen as soon as the sixth message was received.
+
+For now we allow negative
+
+> -- | Like 'printB' but using @putStr@.
+> putStrB :: (Num n)=> n -> Behavior String
+> putStrB 0 = mempty --special case when called directly w/ 0
+> putStrB n = Behavior $ do
 >     s <- received
 >     liftIO $ putStr s
->     return $ putStrB $ fmap (subtract 1) mn
+>     guard (n /= 1)
+>     return $ putStrB (n-1)
 
 > -- | Sends a @()@ to the passed chan. This is useful with 'mappend' for
 > -- signalling the end of some other 'Behavior'.
 > --
-> -- > signalB = Behavior . flip send ()
+> -- > signalB c = Behavior (send c () >> abort)
 > signalB :: (SplitChan c x)=> c () -> Behavior i
-> signalB = Behavior . (>> abort) . flip send ()
+> signalB c = Behavior (send c () >> abort)
+
+> -- | A @Behavior@ that discard its first input, returning the passed Behavior
+> -- for processing subsequent inputs. Useful with 'Alternative' or 'Monoid'
+> -- compositions when one wants to ignore the leftover input.
+> --
+> -- > constB = Behavior . return
+> constB :: Behavior i -> Behavior i
+> constB = Behavior . return
