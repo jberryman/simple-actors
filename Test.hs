@@ -24,8 +24,8 @@ monoidTest = do
     -- spawn printer that writes to chan when done:
     s <- newChan
     let print5 = printB 5 `mappend` signalB s
-    -- ignore the final value received by first print5, by using constB:
-    c <- spawn $ print5 `mappend` constB print5
+    -- ignore the final value received by first print5:
+    c <- spawn $ print5 <.|> print5
 
     -- here we want 'monoid2' to pick up 'monoid1's last input, so we don't use
     let beh = monoid1 c `mappend` monoid2 c

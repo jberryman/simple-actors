@@ -8,8 +8,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     -}
 >
 >     -- * Actor Behaviors
->       Behavior(..)
->     , Action()
+>       Action()
+>     , Behavior(..)
+>     -- ** Composing Behaviors
+>     , (<.|>)
 >
 >     -- * Available actions
 >     -- ** Message passing
@@ -112,7 +114,6 @@ TODO
     - some more involved / realistic tests
         - binary tree
         - get complete code coverage into simple test module
-    - make sure we define all convenient exports and wrapper functions
     - clean up function docs (refs to locks, etc.)
     - better documentation:
         - examples
@@ -180,6 +181,16 @@ ACTIONS
 
 Functionality is based on our underlying type classes, but users shouldn't need
 to import a bunch of libraries to get basic Behavior building functionality.
+
+> infixl 3 <.|>
+
+> -- | Sequence two Behaviors. After the first 'yield's the second takes over,
+> -- discarding the message the former was processing. See also the 'Monoid'
+> -- instance for @Behavior@.
+> -- 
+> -- > b <.|> b' = b `mappend` constB b'
+> (<.|>) :: Behavior i -> Behavior i -> Behavior i
+> b <.|> b' = b `mappend` constB b'
 
 The 'yield' function is so named because it is "relinquishing control", i.e. I
 think the name reminds of the functionality of <|> and mappend (the last input
