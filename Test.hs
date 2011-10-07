@@ -2,8 +2,6 @@
 module Main
     where
 
-import Control.Concurrent
-
 import Control.Concurrent.Actors
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
@@ -74,19 +72,19 @@ doRecTest = do
                       send b2 "1"
                       m <- received
                       send c $ "1 received "++m
-                      abort
+                      yield
         b2 <- spawn $ 
                 Behavior $ do
                       send b3 "2" 
                       m <- received
                       send c $ "2 received "++m
-                      abort
+                      yield
         b3 <- spawn $ 
                 Behavior $ do
                       send b1 "3" 
                       m <- received
                       send c $ "3 received "++m
-                      abort
+                      yield
     
     -- sending the first message to "b3" starts the chain:
     send b3 "main"

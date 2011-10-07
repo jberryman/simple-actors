@@ -3,7 +3,9 @@
 This module exports a simple, idiomatic implementation of the Actor Model.
 
 > module Control.Concurrent.Actors (
->
+>     {- | 
+>       EXAMPLES AND USAGE
+>     -}
 >
 >     -- * Actor Behaviors
 >       Behavior(..)
@@ -34,13 +36,16 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     >     -- send initial messages to actors spawned above:
 >     >     send b3 i
 >     >     send "first" b2
->     >     abort
+>     >     yield
 >     -}
 >     , spawn
 >     , spawn_
 >     , spawnReading
->     -- ** Aborting an actor computation
->     , abort
+>     -- ** Exiting an actor computation
+>     {- | 
+>      EXPLANATION
+>     -}
+>     , yield
 >
 >     -- * Utility functions
 >     , runBehavior_
@@ -85,8 +90,6 @@ work with GHCi:
 
 TODO
 -----
-    - abort = yield ? As in giving up the input val. Yes! especially since that
-      is the intended purpose of 'yield' in enumerator package.
     - some more involved / realistic tests
         - binary tree
         - get complete code coverage into simple test module
@@ -159,11 +162,12 @@ ACTIONS
 Functionality is based on our underlying type classes, but users shouldn't need
 to import a bunch of libraries to get basic Behavior building functionality:
 
-> -- | Aborts an Actor computation:
+> -- | Give up processing an input, perhaps relinquishing the input to an 
+> -- 'Alternative' computation or exiting the actor.
 > -- 
-> -- > abort = mzero
-> abort :: Action i a
-> abort = mzero
+> -- > yield = mzero
+> yield :: Action i a
+> yield = mzero
 
 
 > -- | Return the message received to start this 'Action' block. /N.B/ the value
@@ -173,7 +177,7 @@ to import a bunch of libraries to get basic Behavior building functionality:
 > received :: Action i i
 > received = ask
 
-> -- | Return received message matching predicate, otherwise 'abort' the actor.
+> -- | Return received message matching predicate, otherwise 'yield'.
 > --
 > -- > guardReceived p = ask >>= \i-> guard (p i) >> return i
 > guardReceived :: (i -> Bool) -> Action i i
@@ -242,11 +246,11 @@ USEFUL GENERAL BEHAVIORS
 ========================
 
 > -- | Prints all messages to STDOUT in the order they are received,
-> -- 'abort'-ing /immediately/ after @n@ inputs are printed.
+> -- 'yield'-ing /immediately/ after @n@ inputs are printed.
 > printB :: (Show s, Num n)=> n -> Behavior s
 > printB = contramap (unlines . return . show) . putStrB
 
-We want to abort right after printing the last input to print. This lets us
+We want to yield right after printing the last input to print. This lets us
 compose with signalB for instance:
 
     write5ThenExit = putStrB 5 `mappend` signalB c
@@ -269,9 +273,9 @@ For now we allow negative
 > -- | Sends a @()@ to the passed chan. This is useful with 'mappend' for
 > -- signalling the end of some other 'Behavior'.
 > --
-> -- > signalB c = Behavior (send c () >> abort)
+> -- > signalB c = Behavior (send c () >> yield)
 > signalB :: (SplitChan c x)=> c () -> Behavior i
-> signalB c = Behavior (send c () >> abort)
+> signalB c = Behavior (send c () >> yield)
 
 > -- | A @Behavior@ that discard its first input, returning the passed Behavior
 > -- for processing subsequent inputs. Useful with 'Alternative' or 'Monoid'
