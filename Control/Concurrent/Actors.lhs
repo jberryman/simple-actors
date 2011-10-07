@@ -43,7 +43,26 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , spawnReading
 >     -- ** Exiting an actor computation
 >     {- | 
->      EXPLANATION
+>     An actor computation can be halted immediately by calling 'yield' which is
+>     a synonym for 'mzero'. When an 'Action' calling @yield@ is composed with
+>     another using @<|>@ the second takes over processing the /same/ input
+>     which the former @yield@-ed on.
+>
+>     Here is an example of a computation using 'guard' which returns @mzero@ if
+>     the test is false:
+>
+>     > foo c n = Behavior $ 
+>     >       do i <- received
+>     >          guard (n<10)
+>     >          send c i
+>     >          return (foo c $ n+1)
+>     >
+>     >   <|> do i <- received -- same as 'i' above
+>     >          send c $ "TENTH INPUT: "++i
+>     >          return (foo c 0)
+>
+>     The behavior for the @Monoid@ instance for 'Behavior' works on the same
+>     principle.
 >     -}
 >     , yield
 >
@@ -160,10 +179,17 @@ ACTIONS
 =======
 
 Functionality is based on our underlying type classes, but users shouldn't need
-to import a bunch of libraries to get basic Behavior building functionality:
+to import a bunch of libraries to get basic Behavior building functionality.
 
-> -- | Give up processing an input, perhaps relinquishing the input to an 
-> -- 'Alternative' computation or exiting the actor.
+The 'yield' function is so named because it is "relinquishing control", i.e. I
+think the name reminds of the functionality of <|> and mappend (the last input
+is passed along) and also has the meaning "quit".
+
+Its similarity (or not) to the 'enumerator' function of the same same may be a
+source of confusion (or the opposite)... I'm not sure.
+
+> -- | Immediately give up processing an input, perhaps relinquishing the input
+> -- to an 'Alternative' computation or exiting the actor.
 > -- 
 > -- > yield = mzero
 > yield :: Action i a
