@@ -103,7 +103,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , spawn
 >     , spawn_
 >     , spawnReading
->     -- ** Exiting an actor computation
+>     -- ** Building an actor computation
 >     {- | 
 >     An actor computation can be halted immediately by calling 'yield' which is
 >     a synonym for 'mzero'. When an 'Action' calling @yield@ is composed with
@@ -127,6 +127,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     principle.
 >     -}
 >     , yield
+>     , receive
 >
 >     -- * Utility functions
 >     , runBehavior_
@@ -171,12 +172,9 @@ work with GHCi:
 
 TODO
 -----
-    - add receive = return . Receive
     - some more involved / realistic tests
         - get complete code coverage into simple test module
-        - binary tree
     - clean up function docs (refs to locks, etc.)
-        - example
     - release 0.1.0 !
 
  0.2.0:
@@ -268,7 +266,20 @@ source of confusion (or the opposite)... I'm not sure.
 > -- > yield = mzero
 > yield :: Action i a
 > yield = mzero
-
+>
+> -- | Useful to make defining a continuing Behavior more readable as a
+> -- \"receive block\", e.g.
+> --
+> -- > pairUp out = Receive $ do
+> -- >     a <- received
+> -- >     receive $ do
+> -- >         b <- received
+> -- >         send out (b,a)
+> -- >         return (pairUp out)
+> --
+> -- Defined: @receive = return . Receive@
+> receive :: Action i (Behavior i) -> Action i (Behavior i)
+> receive = return . Receive
 
 > -- | Return the message received to start this 'Action' block. /N.B/ the value
 > -- returned here does not change between calls in the same 'Action'.
