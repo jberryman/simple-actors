@@ -29,7 +29,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     used. GHC\'s \"Recursive Do\" make this especially easy:
 >     .
 >     > {-# LANGUAGE DoRec #-}
->     > beh = Behavior $ do
+>     > beh = Receive $ do
 >     >     i <- received
 >     >     -- similar to the scoping in a "let" block:
 >     >     rec b1 <- spawn (senderTo b2)
@@ -53,7 +53,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     Here is an example of a computation using 'guard' which returns @mzero@ if
 >     the test is false:
 >
->     > foo c n = Behavior $ 
+>     > foo c n = Receive $ 
 >     >       do i <- received
 >     >          guard (n<10)
 >     >          send c i
@@ -111,7 +111,6 @@ work with GHCi:
 
 TODO
 -----
-    - change Behavior constructor to Receive (i.e. receive blocks)
     - add receive = return . Receive
     - some more involved / realistic tests
         - get complete code coverage into simple test module
@@ -305,7 +304,7 @@ For now we allow negative
 > -- | Like 'printB' but using @putStr@.
 > putStrB :: (Num n)=> n -> Behavior String
 > putStrB 0 = mempty --special case when called directly w/ 0
-> putStrB n = Behavior $ do
+> putStrB n = Receive $ do
 >     s <- received
 >     liftIO $ putStr s
 >     guard (n /= 1)
@@ -314,14 +313,14 @@ For now we allow negative
 > -- | Sends a @()@ to the passed chan. This is useful with 'mappend' for
 > -- signalling the end of some other 'Behavior'.
 > --
-> -- > signalB c = Behavior (send c () >> yield)
+> -- > signalB c = Receive (send c () >> yield)
 > signalB :: (SplitChan c x)=> c () -> Behavior i
-> signalB c = Behavior (send c () >> yield)
+> signalB c = Receive (send c () >> yield)
 
 > -- | A @Behavior@ that discard its first input, returning the passed Behavior
 > -- for processing subsequent inputs. Useful with 'Alternative' or 'Monoid'
 > -- compositions when one wants to ignore the leftover input.
 > --
-> -- > constB = Behavior . return
+> -- > constB = Receive . return
 > constB :: Behavior i -> Behavior i
-> constB = Behavior . return
+> constB = Receive . return

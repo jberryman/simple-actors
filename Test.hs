@@ -46,14 +46,14 @@ monoidTest = do
     
 
 -- aborts on numbers gt 2, and on Nothing
-monoid1 c = Behavior $ do
+monoid1 c = Receive $ do
     (Just n) <- received
     guard (n<3)
     send c $ "monoid1: "++show n
     return (monoid1 c)
 
 -- writes received number to chan or 0 if given Nothing:
-monoid2 c = Behavior $ do
+monoid2 c = Receive $ do
     mn <- received
     send c $ ("monoid2: "++) $ maybe "0" show mn
     return (monoid2 c)
@@ -72,19 +72,19 @@ doRecTest = do
    
     -- mutually-communicating actors:
     rec b1 <- spawn $ 
-                Behavior $ do
+                Receive $ do
                       send b2 "1"
                       m <- received
                       send c $ "1 received "++m
                       yield
         b2 <- spawn $ 
-                Behavior $ do
+                Receive $ do
                       send b3 "2" 
                       m <- received
                       send c $ "2 received "++m
                       yield
         b3 <- spawn $ 
-                Behavior $ do
+                Receive $ do
                       send b1 "3" 
                       m <- received
                       send c $ "3 received "++m
@@ -122,7 +122,7 @@ addValue a nd = liftIO $ do
 -- the value was already present.
 -- The behavior then recurses, closing over any newly created child node.
 treeNode :: Maybe Node -> Maybe Node -> Int -> Behavior Message
-treeNode l r a = Behavior $ do
+treeNode l r a = Receive $ do
      m@(a',v) <- received
      let addToChild = fmap Just . maybe newNode passToChild
          newNode = send v True >> initTree a'
@@ -169,7 +169,7 @@ type OutMessage = String
 
 -- we also use an Actor to write our values to the tree
 writeRandsTo :: RootNode -> Mailbox OutMessage -> Int -> Name -> Behavior a
-writeRandsTo root out n name = Behavior $ do
+writeRandsTo root out n name = Receive $ do
     guard (n /= 0)
     -- a random stream of ints:
     i <- randInt

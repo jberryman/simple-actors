@@ -29,13 +29,14 @@ These imports are mostly for all the instances for Action that we define:
 A Behavior wraps an Action i a, into a list-like sequence of actions to perform
 over inputs:
 
-> -- | An 'Action' that returns the @Action@s to be performed on the /next/
-> -- input is a @Behavior@. Actors are created by 'spawn'ing a @Behavior@. 
-> newtype Behavior i = Behavior { headAction :: Action i (Behavior i) }
+> -- | An actor is created by 'spawn'ing a @Behavior@. Behaviors consist of
+> -- a composed 'Action' that is executed when a message is 'received' and
+> -- returns the @Behavior@ for processing the next input.
+> newtype Behavior i = Receive { headAction :: Action i (Behavior i) }
 > 
 > instance Contravariant Behavior where
->     contramap f (Behavior a) = Behavior $ f ^>> (contramap f <$> a)
->     --contramap f = Behavior . withReaderT f . fmap (contramap f) . headAction
+>     contramap f (Receive a) = Receive $ f ^>> (contramap f <$> a)
+>     --contramap f = Receive . withReaderT f . fmap (contramap f) . headAction
 >
 
 This is essentially a marriage of the Monoid [] instance with Action's
@@ -45,8 +46,8 @@ Alternative instance, and I am mostly convinced it is right and has utility:
 > -- occured in @b1@, i.e. @b2@\'s first input will be the final input handed to
 > -- @b1@.
 > instance Monoid (Behavior i) where
->     mempty = Behavior mzero
->     mappend (Behavior a1) b2@(Behavior a2) = Behavior $ 
+>     mempty = Receive mzero
+>     mappend (Receive a1) b2@(Receive a2) = Receive $ 
 >         -- is this the best way of defining this?:
 >         (flip mappend b2 <$> a1) <|> a2
 
