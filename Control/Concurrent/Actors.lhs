@@ -3,8 +3,68 @@
 This module exports a simple, idiomatic implementation of the Actor Model.
 
 > module Control.Concurrent.Actors (
+>
 >     {- | 
->       EXAMPLES AND USAGE
+>     Here we demonstrate a binary tree of actors that supports insert and query
+>     operations:
+>      
+>     > import Control.Concurrent.Actors
+>     > import Control.Applicative
+>     > import Control.Concurrent.MVar
+>     > 
+>     > -- the actor equivalent of a Nil leaf node:
+>     > nil :: Behavior Operation
+>     > nil = Receive $ do
+>     >     (Query _ var) <- received 
+>     >     send var False -- signal Int is not present in tree
+>     >     return nil     -- await next message
+>     > 
+>     >    <|> do          -- else, Insert received
+>     >     l <- spawn nil -- spawn child nodes
+>     >     r <- spawn nil
+>     >     branch l r . val <$> received  -- create branch from inserted val
+>     >     
+>     > -- a branch node with a value 'v' and two children
+>     > branch :: Node -> Node -> Int -> Behavior Operation    
+>     > branch l r v = loop where
+>     >     loop = Receive $ do
+>     >         m <- received 
+>     >         case compare (val m) v of
+>     >              LT -> send l m
+>     >              GT -> send r m
+>     >              EQ -> case m of -- signal Int present in tree:
+>     >                         (Query _ var) -> send var True
+>     >                         _             -> return ()
+>     >         return loop
+>     > 
+>     > type Node = Mailbox Operation
+>     > 
+>     > -- operations supported by the network:
+>     > data Operation = Insert { val :: Int }
+>     >                | Query { val :: Int
+>     >                        , sigVar :: MVar Bool }
+>     > 
+>     > insert :: Node -> Int -> IO ()
+>     > insert t = send t . Insert
+>     > 
+>     > -- MVar is in the 'SplitChan' class so actors can 'send' to it:
+>     > query :: Node -> Int -> IO Bool
+>     > query t a = do
+>     >     v <- newEmptyMVar
+>     >     send t (Query a v)
+>     >     takeMVar v
+>     
+>     You can use the tree defined above in GHCi:
+>     
+>     >>> :l TreeExample.hs 
+>     Ok
+>     >>> t <- spawn nil
+>     >>> query t 7
+>     False
+>     >>> insert t 7
+>     >>> query t 7
+>     True
+>
 >     -}
 >
 >     -- * Actor Behaviors
