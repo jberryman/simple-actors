@@ -61,17 +61,17 @@ will be useful:
 > --
 > --     - processes a single 'received' message
 > --     
-> --     - may spawn new actors
+> --     - may 'spawn' new actors
 > --     
 > --     - may 'send' messages to other actors
 > --     
-> --     - 'return's the 'Behavior' to be performed on the /next/ input
+> --     - 'return's the 'Behavior' for processing the /next/ message
 > --
 > -- These actions take place within the @Action i@ monad, where @i@ is the type
-> -- of the input.
+> -- of the input message the actor receives.
 > --
 > -- /N.B.:/ the MonadIO instance here is an abstraction leak. An example of a
-> -- good use of 'liftIO' might be to give an Action access to a source of
+> -- good use of 'liftIO' might be to give an @Action@ access to a source of
 > -- randomness.
 > newtype Action i a = Action { readerT :: ReaderT i (MaybeT IO) a }
 >         deriving (Monad, MonadIO, MonadPlus, MonadReader i,
@@ -132,8 +132,7 @@ this:
 > instance ArrowZero Action where
 >     zeroArrow = action $ const mzero
 > 
-> -- inspired by MonadFix instance. I'm not sure if this actually works, but
-> -- it's copied from the Kleisli definition
+> -- inspired by MonadFix instance. 
 > instance ArrowLoop Action where
 >    loop af = action (liftM fst . mfix . f')
 >        where f' x y = f (x, snd y)

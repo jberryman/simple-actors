@@ -105,7 +105,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , spawnReading
 >     -- ** Building an actor computation
 >     {- | 
->     An actor computation can be halted immediately by calling 'yield' which is
+>     An actor computation can be halted immediately by calling 'yield',
 >     a synonym for 'mzero'. When an 'Action' calling @yield@ is composed with
 >     another using @<|>@ the second takes over processing the /same/ input
 >     which the former @yield@-ed on.
@@ -119,12 +119,11 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     >          send c i
 >     >          return (foo c $ n+1)
 >     >
->     >   <|> do i <- received -- same as 'i' above
+>     >   <|> do i <- received -- same as the 'i' above
 >     >          send c $ "TENTH INPUT: "++i
 >     >          return (foo c 0)
 >
->     The behavior for the @Monoid@ instance for 'Behavior' works on the same
->     principle.
+>     The @Monoid@ instance for 'Behavior' works on the same principle.
 >     -}
 >     , yield
 >     , receive
@@ -172,14 +171,11 @@ work with GHCi:
 
 TODO
 -----
-    - some more involved / realistic tests
-        - get complete code coverage into simple test module
-    - clean up function docs (refs to locks, etc.)
-    - release 0.1.0 !
 
  0.2.0:
     - performance testing:
         - take a look at threadscope for random tree test
+        - get complete code coverage into simple test module
     - interesting: http://en.wikipedia.org/wiki/Huang%27s_algorithm
     - better method for waiting for threads to complete. should probbly use
        actor message passing
@@ -215,12 +211,16 @@ TODO
 CHAN TYPES
 ==========
 
-> -- | One can 'send' a messages to a @Mailbox@ where it will be processed by an
-> -- actor\'s defined 'Behavior'
+> -- | One can 'send' a messages to a @Mailbox@ where it will be processed
+> -- according to an actor\'s defined 'Behavior'
 > newtype Mailbox a = Mailbox { inChan :: InChan a }
 >       deriving (Contravariant)
 >
-> -- internal:
+
+We don't need to expose this thanks to the miracle of MonadFix and recursive do,
+but this can be generated via the NewSplitChan class below if the user imports
+the library:
+
 > newtype Messages a = Messages { outChan :: OutChan a }
 >       deriving (Functor) 
 >
@@ -245,7 +245,7 @@ to import a bunch of libraries to get basic Behavior building functionality.
 
 > infixl 3 <.|>
 
-> -- | Sequence two Behaviors. After the first 'yield's the second takes over,
+> -- | Sequence two @Behavior@s. After the first 'yield's the second takes over,
 > -- discarding the message the former was processing. See also the 'Monoid'
 > -- instance for @Behavior@.
 > -- 
@@ -288,7 +288,7 @@ source of confusion (or the opposite)... I'm not sure.
 > received :: Action i i
 > received = ask
 
-> -- | Return received message matching predicate, otherwise 'yield'.
+> -- | Return 'received' message matching predicate, otherwise 'yield'.
 > --
 > -- > guardReceived p = ask >>= \i-> guard (p i) >> return i
 > guardReceived :: (i -> Bool) -> Action i i
@@ -296,7 +296,7 @@ source of confusion (or the opposite)... I'm not sure.
 
 > -- | Send a message asynchronously. This can be used to send messages to other
 > -- Actors via a 'Mailbox', or used as a means of output from the Actor system
-> -- to IO.
+> -- to IO since the function is polymorphic.
 > -- .
 > -- > send b = liftIO . writeChan b
 > send :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
@@ -309,7 +309,8 @@ FORKING AND RUNNING ACTORS:
 
 
 > -- | Like 'spawn' but allows one to specify explicitly the channel from which
-> -- an actor should take its input.
+> -- an actor should take its input. Useful for extending the library to work
+> -- over other channels.
 > spawnReading :: (MonadIO m, SplitChan x c)=> c i -> Behavior i -> m ()
 > spawnReading str = liftIO . void . forkIO . actorRunner 
 >     where actorRunner b =
@@ -321,12 +322,13 @@ RUNNING ACTORS
 
 These work in IO, returning () when the actor finishes with done/mzero:
 
-> -- | run a @Behavior ()@ in the main thread, returning when the computation exits
+> -- | Run a @Behavior ()@ in the main thread, returning when the computation
+> -- exits.
 > runBehavior_ :: Behavior () -> IO ()
 > runBehavior_ b = runBehavior b [(),()..]
 >
-> -- | run a 'Behavior' in the IO monad, taking its "messages" from the list.
-> -- Useful for debugging.
+> -- | run a 'Behavior' in the IO monad, taking its \"messages\" from the list.
+> -- Useful for debugging @Behaviors@.
 > runBehavior :: Behavior a -> [a] -> IO ()
 > runBehavior b (a:as) = runBehaviorStep b a >>= F.mapM_ (`runBehavior` as)
 > runBehavior _ _      = return ()
@@ -336,9 +338,9 @@ These work in IO, returning () when the actor finishes with done/mzero:
 FORKING ACTORS
 --------------
 
-> -- | Fork an 'actor' performing the specified 'Behavior'. /N.B./ an actor 
+> -- | Fork an actor performing the specified 'Behavior'. /N.B./ an actor 
 > -- begins execution of its 'headBehavior' only after a mesage has been 
-> -- received. See 'spawn_'.
+> -- received. See also 'spawn_'.
 > spawn :: (MonadIO m)=> Behavior i -> m (Mailbox i)
 > spawn b = do
 >     (m,s) <- liftIO newSplitChan
