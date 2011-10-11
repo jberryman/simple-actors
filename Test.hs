@@ -13,9 +13,13 @@ import Control.Monad
 import Data.Monoid
 
 main = do
-    monoidTest
+    --monoidTest
     --doRecTest
-    --binaryTreeTest
+    binaryTreeTest
+
+------------------------------------------------
+-- Dining philosophers nonsense?
+
 
 ------------------------------------------------
 -- Testing Monoid instance and pattern match fail in do:
@@ -109,7 +113,6 @@ addValue a nd = liftIO $ do
     takeMVar v
 
 
-
 -- This is the Behavior of interest that defines our tree node actor's behavior.
 -- It is closed over Maybe its left and right child nodes, as well as its own
 -- node value.
@@ -145,7 +148,8 @@ binaryTreeTest = do
     -- all output by forked actors is printed by this actor:
     v <- newEmptyMVar
     output <- spawn $ 
-        printB (26*1000) `mappend` signalB v
+        putStrB (26*1000) `mappend` signalB v
+      --printB (26*1000) `mappend` signalB v
     -- create a new tree from an initial value
     root <- initTree 0
     -- fork 26 actors writing random vals to tree:
@@ -154,16 +158,14 @@ binaryTreeTest = do
     takeMVar v
     
 
-
-
 -- Lift an RNG to an Action. A non-abstraction-breaking use of liftIO here, IMHO
 randInt :: Action a Int
 randInt = liftIO $ randomRIO (-5000,5000) 
 
 
 type Name = Char
-type OutMessage = (Name,Bool,Int)
-
+type OutMessage = String
+--type OutMessage = (Name,Bool,Int)
 
 -- we also use an Actor to write our values to the tree
 writeRandsTo :: RootNode -> Mailbox OutMessage -> Int -> Name -> Behavior a
@@ -174,7 +176,8 @@ writeRandsTo root out n name = Behavior $ do
     -- add them into the tree, returning a list of the results:
     b <- i `addValue` root
     -- report back input, result, and the name of this actor:
-    send out (name,b,i)
+    send out $ if b then "X" else "."
+  --send out (name,b,i)
     return $ writeRandsTo root out (n-1) name
 
 

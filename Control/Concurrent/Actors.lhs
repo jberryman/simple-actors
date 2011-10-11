@@ -111,15 +111,19 @@ work with GHCi:
 
 TODO
 -----
+    - change Behavior constructor to Receive (i.e. receive blocks)
+    - add receive = return . Receive
     - some more involved / realistic tests
-        - binary tree
         - get complete code coverage into simple test module
+        - binary tree
     - clean up function docs (refs to locks, etc.)
-    - better documentation:
-        - examples
+        - example
     - release 0.1.0 !
 
  0.2.0:
+    - performance testing:
+        - take a look at threadscope for random tree test
+    - interesting: http://en.wikipedia.org/wiki/Huang%27s_algorithm
     - better method for waiting for threads to complete. should probbly use
        actor message passing
     - look into whether we should use Text lib instead of strings?
