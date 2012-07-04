@@ -68,7 +68,30 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     -}
 >
 >     -- * Actor Behaviors
+>     {- | 
+>     In the Actor Model, at each step an actor...
+>     
+>         - processes a single 'received' message
+>         
+>         - may 'spawn' new actors
+>         
+>         - may 'send' messages to other actors
+>         
+>         - 'return's the 'Behavior' for processing the /next/ message
+>     
+>     These actions take place within the @Action i@ monad, where @i@ is the type
+>     of the input message the actor receives.
+>     
+>     /N.B.:/ the MonadIO instance here is an abstraction leak. An example of a
+>     good use of 'liftIO' might be to give an @Action@ access to a source of
+>     randomness.
+>     -}
 >       Action()
+>     {- | 
+>     An actor is created by 'spawn'ing a @Behavior@. Behaviors consist of a
+>     composed 'Action' that is executed when a message is 'received' and
+>     returns the @Behavior@ for processing the next input.
+>     -}
 >     , Behavior(..)
 >     -- ** Composing Behaviors
 >     , (<.|>)
@@ -107,7 +130,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     {- | 
 >     An actor computation can be halted immediately by calling 'yield',
 >     a synonym for 'mzero'. When an 'Action' calling @yield@ is composed with
->     another using @<|>@ the second takes over processing the /same/ input
+>     another using @\<|\>@ the second takes over processing the /same/ input
 >     which the former @yield@-ed on.
 >
 >     Here is an example of a computation using 'guard' which returns @mzero@ if
@@ -129,6 +152,9 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , receive
 >
 >     -- * Utility functions
+>     {- | 
+>     These are useful for debugging 'Behavior's
+>     -}
 >     , runBehavior_
 >     , runBehavior 
 >
@@ -171,15 +197,6 @@ work with GHCi:
 
 TODO
 -----
-    - docs cleanup:
-        - referenced functions in Action doc are not in scope
-        - likewise in Behavior
-        - monoid for Behavior should reference yield not abort
-        - no docs for 'send'
-        - in "building an actor" we need to make <|> be @\<|\>@ ?
-        - make implementation for 'receive' on its own > line
-        - make "utility functions" section have note "useful for debugging
-        - in constB "...ignore the leftover 'yield'ed message"
  0.2.0
     - update for newest packages and haskell platform
 
@@ -310,7 +327,9 @@ source of confusion (or the opposite)... I'm not sure.
 > -- >         send out (b,a)
 > -- >         return (pairUp out)
 > --
-> -- Defined: @receive = return . Receive@
+> -- Defined as: 
+> --
+> -- > receive = return . Receive
 > receive :: Action i (Behavior i) -> Action i (Behavior i)
 > receive = return . Receive
 
@@ -330,7 +349,7 @@ source of confusion (or the opposite)... I'm not sure.
 > -- | Send a message asynchronously. This can be used to send messages to other
 > -- Actors via a 'Mailbox', or used as a means of output from the Actor system
 > -- to IO since the function is polymorphic.
-> -- .
+> --  
 > -- > send b = liftIO . writeChan b
 > send :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
 > send b = liftIO . writeChan b
@@ -361,7 +380,6 @@ These work in IO, returning () when the actor finishes with done/mzero:
 > runBehavior_ b = runBehavior b [(),()..]
 >
 > -- | run a 'Behavior' in the IO monad, taking its \"messages\" from the list.
-> -- Useful for debugging @Behaviors@.
 > runBehavior :: Behavior a -> [a] -> IO ()
 > runBehavior b (a:as) = runBehaviorStep b a >>= F.mapM_ (`runBehavior` as)
 > runBehavior _ _      = return ()
@@ -425,7 +443,7 @@ For now we allow negative
 
 > -- | A @Behavior@ that discard its first input, returning the passed Behavior
 > -- for processing subsequent inputs. Useful with 'Alternative' or 'Monoid'
-> -- compositions when one wants to ignore the leftover input.
+> -- compositions when one wants to ignore the leftover 'yield'ed message.
 > --
 > -- > constB = Receive . return
 > constB :: Behavior i -> Behavior i
