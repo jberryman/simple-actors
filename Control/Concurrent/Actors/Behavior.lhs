@@ -1,6 +1,4 @@
-> {-# LANGUAGE CPP, GeneralizedNewtypeDeriving #-}
-> -- Since we don't get a MonadFix instance for MaybeT from transformers:
-> {-# OPTIONS_GHC -fno-warn-orphans #-}
+> {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 > module Control.Concurrent.Actors.Behavior
 >     where
 > 
@@ -58,20 +56,6 @@ will be useful:
 >         deriving (Monad, MonadIO, MonadPlus, MonadReader i,
 >                   Functor, Applicative, Alternative, MonadFix)
 > 
-
-
------- CPP MACROS ------
-
-This should end up in the next version of 'transformers':
-   http://www.haskell.org/pipermail/libraries/2011-April/016201.html
-
-#if !MIN_VERSION_transformers(0,3,0)
-> instance (MonadFix m) => MonadFix (MaybeT m) where
->    mfix f = MaybeT $ mfix (runMaybeT . f . unJust)
->      where unJust = maybe (error "mfix MaybeT: Nothing") id
-#endif
-
-------------------------
 
 
 Some helpers for wrapping / unwrapping:

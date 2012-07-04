@@ -1,4 +1,4 @@
-> {-# LANGUAGE CPP, GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
+> {-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
 
 This module exports a simple, idiomatic implementation of the Actor Model.
 
@@ -185,22 +185,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 
 
 
------- CPP MACROS ------
-
-These macros are only provided by cabal unfortunately.... makes it difficult to
-work with GHCi:
-
-#if !MIN_VERSION_base(4,3,0)
-> void :: (Monad m)=> m a -> m ()
-> void = (>> return ())
-#endif
-
-------------------------
 
 TODO
 -----
  0.3.0:
-    - abandon CPP stuff for older base and transformers
     - define natural transformation combinators (in IO unfortunately) a.la.
       'categories' for Mailbox. So
         - :: Mailbox (a,b) -> (Mailbox a, Mailbox b)  -- divide?
