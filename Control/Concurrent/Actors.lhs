@@ -171,13 +171,34 @@ work with GHCi:
 
 TODO
 -----
+    - docs cleanup:
+        - referenced functions in Action doc are not in scope
+        - likewise in Behavior
+        - monoid for Behavior should reference yield not abort
+        - no docs for 'send'
+        - in "building an actor" we need to make <|> be @\<|\>@ ?
+        - make implementation for 'receive' on its own > line
+        - make "utility functions" section have note "useful for debugging
+        - in constB "...ignore the leftover 'yield'ed message"
+ 0.2.0
+    - update for newest packages and haskell platform
 
- 0.2.0:
+ 0.3.0:
+    - define natural transformation combinators (in IO unfortunately) a.la.
+      'categories' for Mailbox. So
+        - :: Mailbox (a,b) -> (Mailbox a, Mailbox b)  -- divide?
+        - :: Mailbox a -> Mailbox b -> Mailbox (Either a b) -- add?
+        - etc...
+      put these in a separate sub-module, optionally import, mention how an
+      extension to actor model or something
+    - allow supplying the first input message for an actor during spawn. This is
+      awkward otherwise. Include in same sub-module as above?
     - performance testing:
         - take a look at threadscope for random tree test
         - get complete code coverage into simple test module
-    - interesting: http://en.wikipedia.org/wiki/Huang%27s_algorithm
-    - better method for waiting for threads to complete. should probbly use
+    - interesting solution to exit detection: 
+        http://en.wikipedia.org/wiki/Huang%27s_algorithm
+    - better method for waiting for threads to complete. should probably use
        actor message passing
     - look into whether we should use Text lib instead of strings?
       OverloadedStrings?
@@ -185,27 +206,39 @@ TODO
         -test if this lets us use it in importing module w/ OverloadedStrings
         extension
     - structured declarative and unit tests
-    - Performance testing:
-        - test performance vs. straight Chans, etc.
-        - test out overhead of our various locks, especially difference if we
-          scrap the snederLockMutex
     - some sort of exception handling technique via Actors
         (look at enumerator package)
-    - investigate ways of positively influencing thread scheduling based on
-       actor work agenda 
     - strict send' function
-    -Behavior -> enumeratee package translator (and vice versa)
-        (maybe letting us use useful enumerators)
+
+Later:
+    - investigate ways of positively influencing thread scheduling based on
+       actor work agenda?
     - export some more useful Actors and global thingies
         - 'loop' which keeps consuming (is this provided by a class?)
         - function returning an actor to "load balance" inputs over multiple
           actors
         - an actor that sends a random stream?
         - a pre-declared Mailbox for IO?
+
+ Eventualy:
     - provide an "adapter" for amazon SQS, allowing truly distributed message
       passing
-
-
+    - investigate erlang-style selective receive (using Alternative?)
+    - consider: combining TChans, where values are popped off when available,
+      for chan-split?
+    - look at ways we can represent network IO as channels to interface with
+      this. E.g:
+        - https://github.com/ztellman/aleph
+        - http://akka.io/ (scala remote actors lib)
+        - http://www.zeromq.org/intro:read-the-manual
+        - interface to amazon SQS
+        - http://msgpack.org/ 
+        - "shared memory" approaches?
+        - cloudhaskell, haskell-mpi, etc. see: 
+            http://stackoverflow.com/questions/8362998/distributed-haskell-state-of-the-art-in-2011
+    -Behavior -> enumeratee package translator (and vice versa)
+        (maybe letting us use useful enumerators)
+     ...also now pipes, conduits, etc. etc.
 
 
 CHAN TYPES
