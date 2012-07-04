@@ -106,11 +106,11 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     {- | 
 >     The 'spawn' function will be sufficient for forking actors in most cases,
 >     but launching mutually-communicating actors presents a problem.
->     .
+>      
 >     In cases where a 'Behavior' needs access to its own 'Mailbox' or that of 
 >     an actor that must be forked later, the 'MonadFix' instance should be
 >     used. GHC\'s \"Recursive Do\" make this especially easy:
->     .
+>      
 >     > {-# LANGUAGE DoRec #-}
 >     > beh = Receive $ do
 >     >     i <- received
@@ -122,7 +122,9 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     >     send b3 i
 >     >     send "first" b2
 >     >     yield
+>
 >     -}
+>
 >     , spawn
 >     , spawn_
 >     , spawnReading
@@ -197,9 +199,6 @@ work with GHCi:
 
 TODO
 -----
- 0.2.0
-    - update for newest packages and haskell platform
-
  0.3.0:
     - define natural transformation combinators (in IO unfortunately) a.la.
       'categories' for Mailbox. So
@@ -411,7 +410,7 @@ USEFUL GENERAL BEHAVIORS
 
 > -- | Prints all messages to STDOUT in the order they are received,
 > -- 'yield'-ing /immediately/ after @n@ inputs are printed.
-> printB :: (Show s, Num n)=> n -> Behavior s
+> printB :: (Show s, Eq n, Num n)=> n -> Behavior s
 > printB = contramap (unlines . return . show) . putStrB
 
 We want to yield right after printing the last input to print. This lets us
@@ -426,7 +425,7 @@ happen as soon as the sixth message was received.
 For now we allow negative
 
 > -- | Like 'printB' but using @putStr@.
-> putStrB :: (Num n)=> n -> Behavior String
+> putStrB :: (Eq n, Num n)=> n -> Behavior String
 > putStrB 0 = mempty --special case when called directly w/ 0
 > putStrB n = Receive $ do
 >     s <- received
