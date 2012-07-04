@@ -99,7 +99,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     -- * Available actions
 >     -- ** Message passing
 >     , Mailbox()
->     , send
+>     , send , send' , (<->)
 >     , received
 >     , guardReceived
 >     -- ** Spawning actors
@@ -200,6 +200,7 @@ work with GHCi:
 TODO
 -----
  0.3.0:
+    - abandon CPP stuff for older base and transformers
     - define natural transformation combinators (in IO unfortunately) a.la.
       'categories' for Mailbox. So
         - :: Mailbox (a,b) -> (Mailbox a, Mailbox b)  -- divide?
@@ -207,8 +208,6 @@ TODO
         - etc...
       put these in a separate sub-module, optionally import, mention how an
       extension to actor model or something
-    - allow supplying the first input message for an actor during spawn. This is
-      awkward otherwise. Include in same sub-module as above?
     - performance testing:
         - take a look at threadscope for random tree test
         - get complete code coverage into simple test module
@@ -224,7 +223,6 @@ TODO
     - structured declarative and unit tests
     - some sort of exception handling technique via Actors
         (look at enumerator package)
-    - strict send' function
 
 Later:
     - investigate ways of positively influencing thread scheduling based on
@@ -352,6 +350,23 @@ source of confusion (or the opposite)... I'm not sure.
 > -- > send b = liftIO . writeChan b
 > send :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
 > send b = liftIO . writeChan b
+
+> -- | A strict 'send':
+> --
+> -- > send' b a = a `seq` send b a
+> send' :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
+> send' b a = a `seq` send b a
+
+> infixr 1 <->
+>
+> -- | Like 'send' but supports chaining sends by returning the Mailbox.
+> -- Convenient for initializing an Actor with its first input aftwer spawning,
+> -- e.g.
+> --
+> -- >     do mb <- 0 <-> spawn foo
+> (<->) :: (MonadIO m, SplitChan c x)=> a -> m (c a) -> m (c a)
+> a <-> mmb = mmb >>= \mb-> send mb a >> return mb
+
 
 
 
