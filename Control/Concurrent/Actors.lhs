@@ -153,6 +153,13 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , yield
 >     , receive
 >
+>     -- ** Transforming Mailboxes
+>     {- |
+>     We offer some operations to split and combine 'Mailbox'es of sum and
+>     product types. Where these are defined polymorphically in terms of
+>     'SplitChan' we were able to implement these operations using actors.
+>     -}
+>
 >     -- * Utility functions
 >     {- | 
 >     These are useful for debugging 'Behavior's
@@ -189,13 +196,85 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 TODO
 -----
  0.3.0:
-    - define natural transformation combinators (in IO unfortunately) a.la.
+    - define natural transformation combinators (in IO unfortunately. ACTUALLY NO!) a.la.
       'categories' for Mailbox. So
-        - :: Mailbox (a,b) -> (Mailbox a, Mailbox b)  -- divide?
-        - :: Mailbox a -> Mailbox b -> Mailbox (Either a b) -- add?
-        - etc...
+        - :: Mailbox (a,b) -> (Mailbox a, Mailbox b)  -- unzip
+                create two new chans. listen on first, then on second, send (a,b) out to arg chan, repeat
+            NOT IMPLEMENTABLE WITH ACTORS?:
+                META: this seems like an instance that exposes a limitation of actor model,
+                  where we can probably only implement this using "selective receive"
+                  which is really a way of hiding this flaw.
+                  What happened to notion of Collectors?
+                  This is not possible because inherently FUNCTORIAL 
+                   (see Data.Functor.Adjunction, note on "unzip")
+                  
+
+     IMPLEMENTABLE WITHOUT IO, WITH DIFFERENT CHAN REPRESENTATION:
+         newtype MailBox a = MailBox (a -> IO ())
+                  
+        - :: Mailbox a -> Mailbox b -> Mailbox (Either a b) -- coproduct
+            IMPLEMENTABLE WITH ACTORS:
+                spawn actor closed over mbA/B
+                shuttle incoming messages to either as appropriate
+
+            
+        - :: Mailbox a -> Mailbox b -> Mailbox (a,b) -- zip, see Data.Functor.Adjunction
+            IMPLEMENTABLE WITH ACTORS:
+                spawn tuple actor, send a to mbA, b to mbB as tuples arrive
+
+     IMPLEMENTABLE WITHOUT IO:
+        - :: Mailbox (Either a b) -> (Mailbox a, Mailbox b) --product?
+            IMPLEMENTABLE WITH PURE CONTRAVARIANT:
+                foo mb = (contramap Left mb, contramap Right mb)
+
+        INSPIRED BY Control.Category.*, etc. but with last reversed
+
+        - (|||)-variant... codiag also useful
+          :: (a -> c) -> (b -> c)-> (Mailbox c -> Mailbox (Either a b)) 
+            IMPLEMENTABLE WITH PURE CONTRAVARIANT:
+                foo f g = contramap (either f g) 
+        - (&&&)-variant... diag also useful
+          :: (a -> b) -> (a -> c) -> (Mailbox (b,c) -> Mailbox a)
+            IMPLEMENTABLE WITH PURE CONTRAVARIANT:
+                foo f g = contramap (\a-> (f a, f g))
+
+        - idl variant, etc.
+          :: Mailbox ((), a) -> Mailbox a
+
+      PLAN W/R/T ABOVE AND CHAN SPLIT
+        chan-split:
+        - no longer depend on contravariant
+        - copy portions of split-chan lib (see notes)
+        - do some tests, e.g. GC properties
+        
+        simple-actors:
+        - newtype MailBox a = MailBox { send :: a -> IO () }
+        - newtype Messages a = Messages { receive :: IO a }
+        - don't export constructors
+        - define instances (see Op, Predicate, other defined types):
+            - contravariant
+            - Corepresentable (Value MailBox = IO (), etc.)
+        - define any combinators above we don't get from instances
+
+
       put these in a separate sub-module, optionally import, mention how an
       extension to actor model or something
+
+      ALSO: email Edward Kmett, curious what he thinks w/r/t these in IO. Any insights?
+            trying to define these various natural transformations and 
+            categorical creatures might be a great way of piecing out the
+            real limitations of the Actor model, and how extensions might
+            solve these.
+
+      MORE NOTES ON SUBJECT:
+          - somewhat interesting, at least in terms of naming, though I don't think MBs are adjunctions by any stretch:
+             http://hackage.haskell.org/packages/archive/adjunctions/3.0/doc/html/Data-Functor-Adjunction.html
+          - if we expose a Mailbox's original type, it can be Valued, CoIndexed, but NOT corepresentable, because we would need IO in corep
+             http://hackage.haskell.org/packages/archive/representable-functors/2.0.2/doc/html/Data-Functor-Corepresentable.html#t:Value
+          - what we've done w/ mailbox on both ends is identical to Yoneda Lemma?:
+             http://hackage.haskell.org/packages/archive/kan-extensions/2.7/doc/html/Data-Functor-Yoneda-Contravariant.html
+          - we can form all the contructions in cocartesian, but in reverse? 
+
     - performance testing:
         - take a look at threadscope for random tree test
         - get complete code coverage into simple test module
@@ -213,6 +292,7 @@ TODO
         (look at enumerator package)
 
 Later:
+    - create an experimental Collectors sub-module
     - investigate ways of positively influencing thread scheduling based on
        actor work agenda?
     - export some more useful Actors and global thingies
@@ -267,7 +347,12 @@ the library:
 >
 > instance NewSplitChan Mailbox Messages where
 >     newSplitChan = fmap (\(i,o)-> (Mailbox i, Messages o)) newSplitChan
->
+
+
+There isn't really a good abstraction for these AFAICS:
+
+> divideMb :: Mailbox (a,b) -> (Mailbox a, Mailbox b)  
+> addMb :: Mailbox a -> Mailbox b -> Mailbox (Either a b) --MORE DIFFICULT!
 
 
 
@@ -392,8 +477,11 @@ FORKING ACTORS
 --------------
 
 > -- | Fork an actor performing the specified 'Behavior'. /N.B./ an actor 
-> -- begins execution of its 'headBehavior' only after a mesage has been 
-> -- received. See also 'spawn_'.
+> -- begins execution of its 'headBehavior' only after a message has been 
+> -- received; for sending an initial message to an actor right after 'spawn'ing
+> -- it, ('\<|\>') can be convenient.
+> --
+> -- See also 'spawn_'.
 > spawn :: (MonadIO m)=> Behavior i -> m (Mailbox i)
 > spawn b = do
 >     (m,s) <- liftIO newSplitChan
