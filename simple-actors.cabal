@@ -7,7 +7,7 @@ Name:                simple-actors
 -- The package version. See the Haskell package versioning policy
 -- (http://www.haskell.org/haskellwiki/Package_versioning_policy) for
 -- standards guiding when and how versions should be incremented.
-Version:             0.2.0
+Version:             0.2.1
 
 -- A short (one-line) description of the package.
 Synopsis:            A library for more structured concurrent programming, based
@@ -21,11 +21,9 @@ Description:         simple-actors is an EDSL-style library for writing
                      single input value, perform some 'Action's, and return the
                      Behavior to process the next input message it receives.
                      .
-                     /CHANGES/ 0.1 - 0.2:
+                     /CHANGES/ 0.2.0 - 0.2.1:
                      .
-                     - documentation cleanup
-                     .
-                     - updates for GHC 7.4.1
+                     - constrain version of chan-split
 
 -- The license under which the package is released.
 License:             BSD3
@@ -67,7 +65,7 @@ Library
   
   -- Packages needed in order to build this package.
   Build-depends:       base >= 4 && < 5    
-                     , chan-split
+                     , chan-split <= 0.3.0
                      , mtl >= 2
                      , transformers
                      , contravariant
