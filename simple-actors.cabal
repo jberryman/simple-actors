@@ -66,7 +66,7 @@ Library
   
   -- Packages needed in order to build this package.
   Build-depends:       base >= 4.3 && < 5    
-                     , chan-split
+                     , chan-split >= 0.4.0
                      , mtl >= 2
                      , transformers >= 0.3
                      , contravariant

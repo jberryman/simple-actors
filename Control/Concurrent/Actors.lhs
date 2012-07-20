@@ -181,6 +181,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Control.Monad.IO.Class
 > import Control.Concurrent(forkIO)
 > import Data.Monoid
+> import Control.Arrow((***))
 >
 > -- from the contravariant package 
 > import Data.Functor.Contravariant
@@ -242,14 +243,11 @@ TODO
           :: Mailbox ((), a) -> Mailbox a
 
       PLAN W/R/T ABOVE AND CHAN SPLIT
-        chan-split:
-        - no longer depend on contravariant
-        - copy portions of split-chan lib (see notes)
-        - do some tests, e.g. GC properties
         
         simple-actors:
         - newtype MailBox a = MailBox { send :: a -> IO () }
         - newtype Messages a = Messages { receive :: IO a }
+        - change all inChan/outChan instances
         - don't export constructors
         - define instances (see Op, Predicate, other defined types):
             - contravariant
@@ -326,33 +324,43 @@ Later:
 CHAN TYPES
 ==========
 
+By defining our Mailbox as the bare "send" operation we get a very convenient
+way of defining contravariant instance, without all the overhead we had before,
+while ALSO now supporting some great natural transformations on Mailboxes &
+Messages.
+
+We use this newtype to get 'Contravariant' for free, possibly revealing other
+insights:
+
+> type Sender a = Op (IO ()) a
+>
+> mkMailbox :: InChan a -> Mailbox a
+> mkMailbox = Mailbox . Op . writeChan
+>
+> mkMessages :: OutChan a -> Messages a
+> mkMessages = Messages . readChan
+>
 > -- | One can 'send' a messages to a @Mailbox@ where it will be processed
 > -- according to an actor\'s defined 'Behavior'
-> newtype Mailbox a = Mailbox { inChan :: InChan a }
+> newtype Mailbox a = Mailbox { sender :: Sender a }
 >       deriving (Contravariant)
->
 
 We don't need to expose this thanks to the miracle of MonadFix and recursive do,
 but this can be generated via the NewSplitChan class below if the user imports
 the library:
 
-> newtype Messages a = Messages { outChan :: OutChan a }
+> newtype Messages a = Messages { readMsg :: IO a }
 >       deriving (Functor) 
 >
 > -- Not sure how to derive this or if possible:
 > instance SplitChan Mailbox Messages where
->     readChan = readChan . outChan
->     writeChan = writeChan . inChan
->     writeList2Chan = writeList2Chan . inChan
+>     readChan = readMsg
+>     writeChan = getOp . sender
 >
 > instance NewSplitChan Mailbox Messages where
->     newSplitChan = fmap (\(i,o)-> (Mailbox i, Messages o)) newSplitChan
+>     newSplitChan = (mkMailbox *** mkMessages) `fmap` newSplitChan
 
 
-There isn't really a good abstraction for these AFAICS:
-
-> divideMb :: Mailbox (a,b) -> (Mailbox a, Mailbox b)  
-> addMb :: Mailbox a -> Mailbox b -> Mailbox (Either a b) --MORE DIFFICULT!
 
 
 
