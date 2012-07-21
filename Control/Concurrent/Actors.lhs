@@ -5,8 +5,8 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > module Control.Concurrent.Actors (
 >
 >     {- | 
->     Here we demonstrate a binary tree of actors that supports insert and query
->     operations:
+>     Here we demonstrate a binary tree of actors that supports concurrent
+>     insert and query operations:
 >      
 >     > import Control.Concurrent.Actors
 >     > import Control.Applicative
@@ -93,7 +93,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     returns the @Behavior@ for processing the next input.
 >     -}
 >     , Behavior(..)
->     -- ** Composing Behaviors
+>     -- ** Composing and Transforming Behaviors
 >     , (<.|>)
 >
 >     -- * Available actions
@@ -153,12 +153,16 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , yield
 >     , receive
 >
->     -- ** Transforming Mailboxes
+>     -- ** Composing and Transforming Mailboxes
 >     {- |
 >     We offer some operations to split and combine 'Mailbox'es of sum and
->     product types. Where these are defined polymorphically in terms of
->     'SplitChan' we were able to implement these operations using actors.
+>     product types. 
 >     -}
+>     , coproductMb
+>     , productMb
+>     , zipMb
+>     , faninMb
+>     , fanoutMb
 >
 >     -- * Utility functions
 >     {- | 
@@ -181,7 +185,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Control.Monad.IO.Class
 > import Control.Concurrent(forkIO)
 > import Data.Monoid
-> import Control.Arrow((***))
+> import Control.Arrow((***),(&&&),(|||))
 >
 > -- from the contravariant package 
 > import Data.Functor.Contravariant
@@ -197,72 +201,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 TODO
 -----
  0.3.0:
-    - define natural transformation combinators (in IO unfortunately. ACTUALLY NO!) a.la.
-      'categories' for Mailbox. So
-        - :: Mailbox (a,b) -> (Mailbox a, Mailbox b)  -- unzip
-                create two new chans. listen on first, then on second, send (a,b) out to arg chan, repeat
-            NOT IMPLEMENTABLE WITH ACTORS?:
-                META: this seems like an instance that exposes a limitation of actor model,
-                  where we can probably only implement this using "selective receive"
-                  which is really a way of hiding this flaw.
-                  What happened to notion of Collectors?
-                  This is not possible because inherently FUNCTORIAL 
-                   (see Data.Functor.Adjunction, note on "unzip")
-                  
-
-     IMPLEMENTABLE WITHOUT IO, WITH DIFFERENT CHAN REPRESENTATION:
-         newtype MailBox a = MailBox (a -> IO ())
-                  
-        - :: Mailbox a -> Mailbox b -> Mailbox (Either a b) -- coproduct
-            IMPLEMENTABLE WITH ACTORS:
-                spawn actor closed over mbA/B
-                shuttle incoming messages to either as appropriate
-
-            
-        - :: Mailbox a -> Mailbox b -> Mailbox (a,b) -- zip, see Data.Functor.Adjunction
-            IMPLEMENTABLE WITH ACTORS:
-                spawn tuple actor, send a to mbA, b to mbB as tuples arrive
-
-     IMPLEMENTABLE WITHOUT IO:
-        - :: Mailbox (Either a b) -> (Mailbox a, Mailbox b) --product?
-            IMPLEMENTABLE WITH PURE CONTRAVARIANT:
-                foo mb = (contramap Left mb, contramap Right mb)
-
-        INSPIRED BY Control.Category.*, etc. but with last reversed
-
-        - (|||)-variant... codiag also useful
-          :: (a -> c) -> (b -> c)-> (Mailbox c -> Mailbox (Either a b)) 
-            IMPLEMENTABLE WITH PURE CONTRAVARIANT:
-                foo f g = contramap (either f g) 
-        - (&&&)-variant... diag also useful
-          :: (a -> b) -> (a -> c) -> (Mailbox (b,c) -> Mailbox a)
-            IMPLEMENTABLE WITH PURE CONTRAVARIANT:
-                foo f g = contramap (\a-> (f a, f g))
-
-        - idl variant, etc.
-          :: Mailbox ((), a) -> Mailbox a
-
-      PLAN W/R/T ABOVE AND CHAN SPLIT
         
-        simple-actors:
-        - newtype MailBox a = MailBox { send :: a -> IO () }
-        - newtype Messages a = Messages { receive :: IO a }
-        - change all inChan/outChan instances
-        - don't export constructors
-        - define instances (see Op, Predicate, other defined types):
-            - contravariant
-            - Corepresentable (Value MailBox = IO (), etc.)
-        - define any combinators above we don't get from instances
+    - re-export contravariant, Monoid, etc?
+    - move docs to Behaviors submodule, import 
 
-
-      put these in a separate sub-module, optionally import, mention how an
-      extension to actor model or something
-
-      ALSO: email Edward Kmett, curious what he thinks w/r/t these in IO. Any insights?
-            trying to define these various natural transformations and 
-            categorical creatures might be a great way of piecing out the
-            real limitations of the Actor model, and how extensions might
-            solve these.
 
       MORE NOTES ON SUBJECT:
           - somewhat interesting, at least in terms of naming, though I don't think MBs are adjunctions by any stretch:
@@ -290,6 +232,8 @@ TODO
         (look at enumerator package)
 
 Later:
+    - look at what Functor/Contravariant for read/write ends, and corresponding
+      natural transformations those allow suggest about limits of Actor model
     - create an experimental Collectors sub-module
     - investigate ways of positively influencing thread scheduling based on
        actor work agenda?
@@ -334,8 +278,14 @@ insights:
 
 > type Sender a = Op (IO ()) a
 >
+> mailbox :: (a -> IO ()) -> Mailbox a
+> mailbox = Mailbox . Op
+>
+> runMailbox :: Mailbox a -> a -> IO ()
+> runMailbox = getOp . sender
+>
 > mkMailbox :: InChan a -> Mailbox a
-> mkMailbox = Mailbox . Op . writeChan
+> mkMailbox = mailbox . writeChan
 >
 > mkMessages :: OutChan a -> Messages a
 > mkMessages = Messages . readChan
@@ -355,12 +305,36 @@ the library:
 > -- Not sure how to derive this or if possible:
 > instance SplitChan Mailbox Messages where
 >     readChan = readMsg
->     writeChan = getOp . sender
+>     writeChan = runMailbox
 >
 > instance NewSplitChan Mailbox Messages where
 >     newSplitChan = (mkMailbox *** mkMessages) `fmap` newSplitChan
 
 
+For Mailboxes we can define all transformations associated with Cartesian and 
+CoCartesian (from 'categories') but where the category is Dual (->), i.e. the
+order of the transformation is flipped.
+
+I don't know if/how these precisely fit into an existing class, but for now here
+are a handful of useful combinators:
+
+> coproductMb :: Mailbox a -> Mailbox b -> Mailbox (Either a b) 
+> coproductMb m1 m2 = mailbox $ either (writeChan m1) (writeChan m2)
+>
+> zipMb :: Mailbox a -> Mailbox b -> Mailbox (a,b) 
+> zipMb m1 m2 = mailbox $ \(a,b) -> writeChan m1 a >> writeChan m2 b
+>
+> -- | > productMb = contramap Left &&& contramap Right
+> productMb :: Mailbox (Either a b) -> (Mailbox a, Mailbox b)
+> productMb = contramap Left &&& contramap Right
+>
+> -- | > faninMb f g = contramap (f ||| g)
+> faninMb :: (a -> c) -> (b -> c)-> Mailbox c -> Mailbox (Either a b) 
+> faninMb f g = contramap (f ||| g)
+>
+> -- | > fanoutMb f g = contramap (f &&& g)
+> fanoutMb :: (a -> b) -> (a -> c) -> Mailbox (b,c) -> Mailbox a
+> fanoutMb f g = contramap (f &&& g)
 
 
 

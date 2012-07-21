@@ -24,7 +24,13 @@ Description:         simple-actors is an EDSL-style library for writing
                      /CHANGES/ 0.2 - 0.3:
                      .
                      - added (<->) convenience operator, and strict send'
+                     .
+                     - add composition\/transformation functions for Mailboxes
+                     .
                      - drop support for older base and transformers, no more CPP
+                     .
+                     - depend on chan-split 0.4
+
 
 -- The license under which the package is released.
 License:             BSD3
