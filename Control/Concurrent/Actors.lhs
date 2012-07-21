@@ -68,30 +68,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     -}
 >
 >     -- * Actor Behaviors
->     {- | 
->     In the Actor Model, at each step an actor...
->     
->         - processes a single 'received' message
->         
->         - may 'spawn' new actors
->         
->         - may 'send' messages to other actors
->         
->         - 'return's the 'Behavior' for processing the /next/ message
->     
->     These actions take place within the @Action i@ monad, where @i@ is the type
->     of the input message the actor receives.
->     
->     /N.B.:/ the MonadIO instance here is an abstraction leak. An example of a
->     good use of 'liftIO' might be to give an @Action@ access to a source of
->     randomness.
->     -}
 >       Action()
->     {- | 
->     An actor is created by 'spawn'ing a @Behavior@. Behaviors consist of a
->     composed 'Action' that is executed when a message is 'received' and
->     returns the @Behavior@ for processing the next input.
->     -}
 >     , Behavior(..)
 >     -- ** Composing and Transforming Behaviors
 >     , (<.|>)
@@ -461,7 +438,7 @@ FORKING ACTORS
 > -- | Fork an actor performing the specified 'Behavior'. /N.B./ an actor 
 > -- begins execution of its 'headBehavior' only after a message has been 
 > -- received; for sending an initial message to an actor right after 'spawn'ing
-> -- it, ('\<|\>') can be convenient.
+> -- it, ('<|>') can be convenient.
 > --
 > -- See also 'spawn_'.
 > spawn :: (MonadIO m)=> Behavior i -> m (Mailbox i)

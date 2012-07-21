@@ -1,7 +1,6 @@
 > {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 > module Control.Concurrent.Actors.Behavior
 >     where
-> 
 
 Our main data types for actors and behaviors are defined in this private module.
 We may expose this if it is useful to people:
@@ -27,6 +26,9 @@ These imports are mostly for all the instances for Action that we define:
 A Behavior wraps an Action i a, into a list-like sequence of actions to perform
 over inputs:
 
+> -- | An actor is created by 'Control.Concurrent.Actors.spawn'ing a @Behavior@. Behaviors consist of a
+> -- composed 'Action' that is executed when a message is 'Control.Concurrent.Actors.received' and
+> -- returns the @Behavior@ for processing the next input.
 > newtype Behavior i = Receive { headAction :: Action i (Behavior i) }
 > 
 > instance Contravariant Behavior where
@@ -37,7 +39,7 @@ over inputs:
 This is essentially a marriage of the Monoid [] instance with Action's
 Alternative instance, and I am mostly convinced it is right and has utility:
 
-> -- | @b1 `mplus` b2@ has the 'headAction' of @b2@ begin where the 'yield'
+> -- | @b1 `mplus` b2@ has the 'headAction' of @b2@ begin where the 'Control.Concurrent.Actors.yield'
 > -- occured in @b1@, i.e. @b2@\'s first input will be the final input handed to
 > -- @b1@.
 > instance Monoid (Behavior i) where
@@ -52,6 +54,22 @@ constructing behaviors, and I am able to derive a bunch of the instances that
 will be useful:
 
 
+> -- | In the Actor Model, at each step an actor...
+> -- 
+> --     - processes a single 'Control.Concurrent.Actors.received' message
+> --     
+> --     - may 'Control.Concurrent.Actors.spawn' new actors
+> --     
+> --     - may 'Control.Concurrent.Actors.send' messages to other actors
+> --     
+> --     - 'return's the 'Behavior' for processing the /next/ message
+> -- 
+> -- These actions take place within the @Action i@ monad, where @i@ is the type
+> -- of the input message the actor receives.
+> --
+> -- /N.B.:/ the MonadIO instance here is an abstraction leak. An example of a
+> -- good use of 'liftIO' might be to give an @Action@ access to a source of
+> -- randomness.
 > newtype Action i a = Action { readerT :: ReaderT i (MaybeT IO) a }
 >         deriving (Monad, MonadIO, MonadPlus, MonadReader i,
 >                   Functor, Applicative, Alternative, MonadFix)

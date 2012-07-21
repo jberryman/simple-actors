@@ -23,7 +23,7 @@ Description:         simple-actors is an EDSL-style library for writing
                      .
                      /CHANGES/ 0.2 - 0.3:
                      .
-                     - added (<->) convenience operator, and strict send'
+                     - added (@\<-\>@) convenience operator, and strict @send'@
                      .
                      - add composition\/transformation functions for Mailboxes
                      .
