@@ -178,23 +178,11 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 TODO
 -----
  0.3.0:
-        
-    - re-export contravariant, Monoid, etc?
-    - move docs to Behaviors submodule, import 
-
-
-      MORE NOTES ON SUBJECT:
-          - somewhat interesting, at least in terms of naming, though I don't think MBs are adjunctions by any stretch:
-             http://hackage.haskell.org/packages/archive/adjunctions/3.0/doc/html/Data-Functor-Adjunction.html
-          - if we expose a Mailbox's original type, it can be Valued, CoIndexed, but NOT corepresentable, because we would need IO in corep
-             http://hackage.haskell.org/packages/archive/representable-functors/2.0.2/doc/html/Data-Functor-Corepresentable.html#t:Value
-          - what we've done w/ mailbox on both ends is identical to Yoneda Lemma?:
-             http://hackage.haskell.org/packages/archive/kan-extensions/2.7/doc/html/Data-Functor-Yoneda-Contravariant.html
-          - we can form all the contructions in cocartesian, but in reverse? 
-
     - performance testing:
         - take a look at threadscope for random tree test
-        - get complete code coverage into simple test module
+        - use criterion
+        - compare with previous version
+        - profile current
     - interesting solution to exit detection: 
         http://en.wikipedia.org/wiki/Huang%27s_algorithm
     - better method for waiting for threads to complete. should probably use
@@ -205,6 +193,7 @@ TODO
         -test if this lets us use it in importing module w/ OverloadedStrings
         extension
     - structured declarative and unit tests
+        - get complete code coverage into simple test module
     - some sort of exception handling technique via Actors
         (look at enumerator package)
 
