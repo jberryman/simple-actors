@@ -1,4 +1,4 @@
-module Main
+module TreeExample
     where
 
 import Control.Concurrent.Actors
@@ -17,26 +17,42 @@ import Control.Concurrent(forkIO)
  -}
 
 
+    
 -- the actor equivalent of a Nil leaf node:
 nil :: Behavior Operation
 nil = Receive $ do
-    (Query _ var) <- received 
-    send var False -- signal Int is not present in tree
-    return nil     -- await next message
-   
-   <|> do          -- else, StreamQuery received
-    (StreamQuery v var) <- received 
-    send var (v,False) 
-    return nil     
+    msg <- received
+    case msg of
+         (Insert v) -> branch v <$> spawn nil <*> spawn nil
+         _ -> do case msg of
+                      (StreamQuery v var) -> send var (v,False)
+                      (Query _ var)       -> send var False
+                 return nil
 
-   <|> do          -- else, Insert received
-    l <- spawn nil -- spawn child nodes
-    r <- spawn nil
-    branch l r . val <$> received  -- create branch from inserted val
+-- META: this version demonstrates Alternative instance and pattern-match fail,
+-- but has poor memory profile. I loathe how unreadable the above is though.
+--
+-- the actor equivalent of a Nil leaf node:
+-- nil :: Behavior Operation
+-- nil = Receive $ do
+--     (Query _ var) <- received 
+--     send var False -- signal Int is not present in tree
+--     return nil     -- await next message
+   
+--    <|> do          -- else, StreamQuery received
+--     (StreamQuery v var) <- received 
+--     send var (v,False) 
+--     return nil     
+
+--    <|> do          -- else, Insert received
+--     l <- spawn nil -- spawn child nodes
+--     r <- spawn nil
+--     branch l r . val <$> received  -- create branch from inserted val
+                               
     
 -- a branch node with a value 'v' and two children
-branch :: Node -> Node -> Int -> Behavior Operation    
-branch l r v = loop where
+branch :: Int -> Node -> Node -> Behavior Operation    
+branch v l r = loop where
     loop = Receive $ do
         m <- received 
         case compare (val m) v of
@@ -69,7 +85,8 @@ query t a = do
     send t (Query a v)
     takeMVar v
 
--- fork a process that does a bunch of queries, streaming the results back to returned Chan:
+-- fork a process that does a bunch of queries, streaming the results back to
+-- (immediately) returned Chan:
 streamQueries :: Node -> [Int] -> IO (OutChan (Int,Bool))
 streamQueries t as = do
     (i,o) <- newSplitChan
@@ -78,7 +95,7 @@ streamQueries t as = do
 
 ---- TEST CODE: ----
 
-main = do
+mainQuery = do
     t <- spawn nil
     mapM_ (insert t) [5,3,7,2,4,6,8]
     mapM (query t) [1,5,0,7] >>= print
@@ -88,4 +105,9 @@ mainStream = do
     mapM_ (insert t) [5,3,7,2,4,6,8]
     resps <- getChanContents =<< streamQueries t [1,5,0,7]
     print $ take 4 resps 
+
+
+---- BENCHMARK CODE: ----
+
+
 
