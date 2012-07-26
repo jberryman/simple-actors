@@ -16,24 +16,7 @@ import Control.Concurrent(forkIO)
  - types
  -}
 
-
     
--- -- the actor equivalent of a Nil leaf node:
--- nil :: Behavior Operation
--- nil = Receive $ do
---     msg <- received
---     case msg of
---          (Insert v) -> branch v <$> spawn nil <*> spawn nil
---          _ -> do case msg of
---                       (StreamQuery v var) -> send var (v,False)
---                       (Query _ var)       -> send var False
---                  return nil
-
--- META: this version demonstrates Alternative instance and pattern-match fail,
--- At first it looked like it had a much poorer memory profile than above. But subsequent
--- tests had them looking the same. dunno
--- 
---
 -- the actor equivalent of a Nil leaf node:
 nil :: Behavior Operation
 nil = Receive $ do

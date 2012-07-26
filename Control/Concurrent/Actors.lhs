@@ -179,15 +179,14 @@ TODO
 -----
  0.3.0:
     - performance testing:
-        -TODO 
-            - get to the bottom of heap issue: test w/out -N ??
-            - see if replacing all sends with send' helps
-            - threadscope
-            - look into specializing polymorphic funcs like send?
+        - get to the bottom of heap issue: test w/out -N ??
+            - is memory bubble from producer/consumer issue?
+            - test w/ building 1000 and query 1, then vice versa
+            - maybe try using MVars between actors, in place of Chan
+        - get criterion working for our IO code
+        - look into specializing polymorphic funcs like send?
         - take a look at threadscope for random tree test
-        - use criterion
         - compare with previous version
-        - profile current
     - interesting solution to exit detection: 
         http://en.wikipedia.org/wiki/Huang%27s_algorithm
     - better method for waiting for threads to complete. should probably use
@@ -203,8 +202,12 @@ TODO
         (look at enumerator package)
 
 Later:
+    - dynamically-bounded chans, based on number of writers to control
+      producer/consumer issues? Possibly add more goodies to chan-split
+          see: http://hackage.haskell.org/package/stm-chans
     - look at what Functor/Contravariant for read/write ends, and corresponding
       natural transformations those allow suggest about limits of Actor model
+      and investigate inverse of Actors (Reducers?)
     - create an experimental Collectors sub-module
     - investigate ways of positively influencing thread scheduling based on
        actor work agenda?
@@ -215,7 +218,12 @@ Later:
         - an actor that sends a random stream?
         - a pre-declared Mailbox for IO?
 
- Eventualy:
+ Eventually:
+    - abilty to launch an actor that automatically "replicates" if its chan needs more
+       consumers. This should probably be restricted to an `Action i ()` that we
+       repeat.
+    - can we automatically throttle producers on an Actor system level,
+      optimizing message flow with some algorithm?
     - provide an "adapter" for amazon SQS, allowing truly distributed message
       passing
     - investigate erlang-style selective receive (using Alternative?)
@@ -234,6 +242,8 @@ Later:
     -Behavior -> enumeratee package translator (and vice versa)
         (maybe letting us use useful enumerators)
      ...also now pipes, conduits, etc. etc.
+
+     - study ambient/join/fusion calculi for clues as to where it's really at
 
 
 CHAN TYPES
