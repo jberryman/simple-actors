@@ -179,6 +179,11 @@ TODO
 -----
  0.3.0:
     - performance testing:
+        -TODO 
+            - get to the bottom of heap issue: test w/out -N ??
+            - see if replacing all sends with send' helps
+            - threadscope
+            - look into specializing polymorphic funcs like send?
         - take a look at threadscope for random tree test
         - use criterion
         - compare with previous version
