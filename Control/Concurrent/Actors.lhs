@@ -179,29 +179,26 @@ TODO
 -----
  0.3.0:
     - performance testing:
-        - get to the bottom of heap issue: test w/out -N ??
-            - is memory bubble from producer/consumer issue?
-            - test w/ building 1000 and query 1, then vice versa
-            - maybe try using MVars between actors, in place of Chan
-        - get criterion working for our IO code
-        - look into specializing polymorphic funcs like send?
+        + look at interface file: ghc -ddump-hi Control/Concurrent/Actors.hs -O -c
+        + use INLINABLE
+        + test again with SPECIALIZE instead
+        - try adding INLINE to all with higher-order args (or higher-order newtype wrappers)
+           and make sure our LHS looks good for inlining
+        - specialize `Action i (Behavior i)` or allow lots of unfolding... ? Optimize those loops, somehow. Rewrite rules?
         - take a look at threadscope for random tree test
-        - compare with previous version
-    - interesting solution to exit detection: 
-        http://en.wikipedia.org/wiki/Huang%27s_algorithm
+        - look at "let floating" and INLINEABLE to get functions with "fully-applied (syntactically) LHS"
+        - compare with previous version (cp to /tmp to use previous version)
+        - 
     - better method for waiting for threads to complete. should probably use
        actor message passing
-    - look into whether we should use Text lib instead of strings?
-      OverloadedStrings?
-        -import Data.String, make polymorphic over IsString
-        -test if this lets us use it in importing module w/ OverloadedStrings
-        extension
     - structured declarative and unit tests
         - get complete code coverage into simple test module
     - some sort of exception handling technique via Actors
         (look at enumerator package)
 
 Later:
+    - interesting solution to exit detection: 
+        http://en.wikipedia.org/wiki/Huang%27s_algorithm
     - dynamically-bounded chans, based on number of writers to control
       producer/consumer issues? Possibly add more goodies to chan-split
           see: http://hackage.haskell.org/package/stm-chans
@@ -385,12 +382,14 @@ source of confusion (or the opposite)... I'm not sure.
 > --  
 > -- > send b = liftIO . writeChan b
 > send :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
+> {-# SPECIALIZE send :: Mailbox a -> a -> Action i () #-}
 > send b = liftIO . writeChan b
 
 > -- | A strict 'send':
 > --
 > -- > send' b a = a `seq` send b a
 > send' :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
+> {-# SPECIALIZE send' :: Mailbox a -> a -> Action i () #-}
 > send' b a = a `seq` send b a
 
 > infixr 1 <->
@@ -401,6 +400,7 @@ source of confusion (or the opposite)... I'm not sure.
 > --
 > -- >     do mb <- 0 <-> spawn foo
 > (<->) :: (MonadIO m, SplitChan c x)=> a -> m (c a) -> m (c a)
+> {-# SPECIALIZE (<->) :: a -> Action i (Mailbox a) -> Action i (Mailbox a) #-}
 > a <-> mmb = mmb >>= \mb-> send mb a >> return mb
 
 
@@ -414,6 +414,7 @@ FORKING AND RUNNING ACTORS:
 > -- an actor should take its input. Useful for extending the library to work
 > -- over other channels.
 > spawnReading :: (MonadIO m, SplitChan x c)=> c i -> Behavior i -> m ()
+> {-# INLINABLE spawnReading #-}
 > spawnReading str = liftIO . void . forkIO . actorRunner 
 >     where actorRunner b =
 >               readChan str >>= runBehaviorStep b >>= F.mapM_ actorRunner
@@ -446,6 +447,7 @@ FORKING ACTORS
 > --
 > -- See also 'spawn_'.
 > spawn :: (MonadIO m)=> Behavior i -> m (Mailbox i)
+> {-# SPECIALIZE spawn :: Behavior a -> Action i (Mailbox a) #-}
 > spawn b = do
 >     (m,s) <- liftIO newSplitChan
 >     spawnReading s b
@@ -455,6 +457,7 @@ FORKING ACTORS
 > -- launching a @Behavior ()@ and another 'Behavior' that sends an infinite stream of
 > -- ()s to the former\'s 'Mailbox'.
 > spawn_ :: (MonadIO m)=> Behavior () -> m ()
+> {-# SPECIALIZE spawn_ :: Behavior () -> Action i () #-}
 > spawn_ = liftIO . void . forkIO . runBehavior_  
 
 
@@ -465,6 +468,7 @@ USEFUL GENERAL BEHAVIORS
 > -- | Prints all messages to STDOUT in the order they are received,
 > -- 'yield'-ing /immediately/ after @n@ inputs are printed.
 > printB :: (Show s, Eq n, Num n)=> n -> Behavior s
+> {-# INLINABLE printB #-}
 > printB = contramap (unlines . return . show) . putStrB
 
 We want to yield right after printing the last input to print. This lets us
@@ -480,6 +484,7 @@ For now we allow negative
 
 > -- | Like 'printB' but using @putStr@.
 > putStrB :: (Eq n, Num n)=> n -> Behavior String
+> {-# INLINABLE putStrB #-}
 > putStrB 0 = mempty --special case when called directly w/ 0
 > putStrB n = Receive $ do
 >     s <- received
@@ -492,6 +497,7 @@ For now we allow negative
 > --
 > -- > signalB c = Receive (send c () >> yield)
 > signalB :: (SplitChan c x)=> c () -> Behavior i
+> {-# SPECIALIZE signalB :: Mailbox () -> Behavior i #-}
 > signalB c = Receive (send c () >> yield)
 
 > -- | A @Behavior@ that discard its first input, returning the passed Behavior
