@@ -178,17 +178,6 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 TODO
 -----
  0.3.0:
-    - performance testing:
-        + look at interface file: ghc -ddump-hi Control/Concurrent/Actors.hs -O -c
-        + use INLINABLE
-        + test again with SPECIALIZE instead
-        - try adding INLINE to all with higher-order args (or higher-order newtype wrappers)
-           and make sure our LHS looks good for inlining
-        - specialize `Action i (Behavior i)` or allow lots of unfolding... ? Optimize those loops, somehow. Rewrite rules?
-        - take a look at threadscope for random tree test
-        - look at "let floating" and INLINEABLE to get functions with "fully-applied (syntactically) LHS"
-        - compare with previous version (cp to /tmp to use previous version)
-        - 
     - better method for waiting for threads to complete. should probably use
        actor message passing
     - structured declarative and unit tests
@@ -196,7 +185,29 @@ TODO
     - some sort of exception handling technique via Actors
         (look at enumerator package)
 
+0.4
+    - allow destructuring using UndecidableInstances (see mockup) on spawn, allowing for new, awesome synchronization semantics!
+    - make that also work with Behaviors of arbitrary input types using new GHC generics!
+
+
+
 Later:
+    - performance tuning / benchmarking:
+        + look at interface file: ghc -ddump-hi Control/Concurrent/Actors.hs -O -c
+        + remove current PRAGMA
+        - close browser and everything, do a fake quick benchmark to get clock info
+        - be more controlled about the source lists (do once before defaultMain), use 'evaluate'
+        - run with +RTS -s and make sure everything is 0
+        - see if case-based nil is better
+        - get accurate baseline comparison between actors and set
+        - use INLINABLE
+        - test again with SPECIALIZE instead
+        - try adding INLINE to all with higher-order args (or higher-order newtype wrappers)
+           and make sure our LHS looks good for inlining
+        - specialize `Action i (Behavior i)` or allow lots of unfolding... ? Optimize those loops, somehow. Rewrite rules?
+        - take a look at threadscope for random tree test
+        - look at "let floating" and INLINEABLE to get functions with "fully-applied (syntactically) LHS"
+        - compare with previous version (cp to /tmp to use previous version)
     - interesting solution to exit detection: 
         http://en.wikipedia.org/wiki/Huang%27s_algorithm
     - dynamically-bounded chans, based on number of writers to control
@@ -382,25 +393,22 @@ source of confusion (or the opposite)... I'm not sure.
 > --  
 > -- > send b = liftIO . writeChan b
 > send :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
-> {-# SPECIALIZE send :: Mailbox a -> a -> Action i () #-}
 > send b = liftIO . writeChan b
 
 > -- | A strict 'send':
 > --
 > -- > send' b a = a `seq` send b a
 > send' :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
-> {-# SPECIALIZE send' :: Mailbox a -> a -> Action i () #-}
 > send' b a = a `seq` send b a
 
 > infixr 1 <->
 >
 > -- | Like 'send' but supports chaining sends by returning the Mailbox.
-> -- Convenient for initializing an Actor with its first input aftwer spawning,
+> -- Convenient for initializing an Actor with its first input after spawning,
 > -- e.g.
 > --
 > -- >     do mb <- 0 <-> spawn foo
 > (<->) :: (MonadIO m, SplitChan c x)=> a -> m (c a) -> m (c a)
-> {-# SPECIALIZE (<->) :: a -> Action i (Mailbox a) -> Action i (Mailbox a) #-}
 > a <-> mmb = mmb >>= \mb-> send mb a >> return mb
 
 
@@ -414,7 +422,6 @@ FORKING AND RUNNING ACTORS:
 > -- an actor should take its input. Useful for extending the library to work
 > -- over other channels.
 > spawnReading :: (MonadIO m, SplitChan x c)=> c i -> Behavior i -> m ()
-> {-# INLINABLE spawnReading #-}
 > spawnReading str = liftIO . void . forkIO . actorRunner 
 >     where actorRunner b =
 >               readChan str >>= runBehaviorStep b >>= F.mapM_ actorRunner
@@ -447,7 +454,6 @@ FORKING ACTORS
 > --
 > -- See also 'spawn_'.
 > spawn :: (MonadIO m)=> Behavior i -> m (Mailbox i)
-> {-# SPECIALIZE spawn :: Behavior a -> Action i (Mailbox a) #-}
 > spawn b = do
 >     (m,s) <- liftIO newSplitChan
 >     spawnReading s b
@@ -457,7 +463,6 @@ FORKING ACTORS
 > -- launching a @Behavior ()@ and another 'Behavior' that sends an infinite stream of
 > -- ()s to the former\'s 'Mailbox'.
 > spawn_ :: (MonadIO m)=> Behavior () -> m ()
-> {-# SPECIALIZE spawn_ :: Behavior () -> Action i () #-}
 > spawn_ = liftIO . void . forkIO . runBehavior_  
 
 
@@ -468,7 +473,6 @@ USEFUL GENERAL BEHAVIORS
 > -- | Prints all messages to STDOUT in the order they are received,
 > -- 'yield'-ing /immediately/ after @n@ inputs are printed.
 > printB :: (Show s, Eq n, Num n)=> n -> Behavior s
-> {-# INLINABLE printB #-}
 > printB = contramap (unlines . return . show) . putStrB
 
 We want to yield right after printing the last input to print. This lets us
@@ -484,7 +488,6 @@ For now we allow negative
 
 > -- | Like 'printB' but using @putStr@.
 > putStrB :: (Eq n, Num n)=> n -> Behavior String
-> {-# INLINABLE putStrB #-}
 > putStrB 0 = mempty --special case when called directly w/ 0
 > putStrB n = Receive $ do
 >     s <- received
@@ -497,7 +500,6 @@ For now we allow negative
 > --
 > -- > signalB c = Receive (send c () >> yield)
 > signalB :: (SplitChan c x)=> c () -> Behavior i
-> {-# SPECIALIZE signalB :: Mailbox () -> Behavior i #-}
 > signalB c = Receive (send c () >> yield)
 
 > -- | A @Behavior@ that discard its first input, returning the passed Behavior

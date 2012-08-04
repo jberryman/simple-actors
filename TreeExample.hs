@@ -16,6 +16,10 @@ import Control.Concurrent(forkIO)
  - types
  -}
 
+
+-- ---
+-- -- TODO: Benchmark this and see how this compares w/ case expr cascade:
+-- ---
     
 -- the actor equivalent of a Nil leaf node:
 nil :: Behavior Operation
