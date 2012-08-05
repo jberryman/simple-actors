@@ -14,7 +14,7 @@ import TreeExample
 -- put benchmarking & optimizing on hold until we can figure out how to get
 -- consistent results....
 
-main = defaultMain [
+main0 = defaultMain [
     bench "calibrate" $ whnf sqrt 999999999
     -- bgroup "actors" [
     --         bench "insert 1000, query 1000" $ whnfIO $ testActors (2^10 - 1, 1000)
@@ -29,7 +29,7 @@ main = defaultMain [
   --       ]
     ]
 
-
+main = testActors (2^10 - 1, 1000) >>= print
 
 -- DEBUGGING:
 seed = 2876549687276 :: Int
@@ -51,6 +51,7 @@ testSet (x,y) = do
     return payload
 
 -- ACTORS
+testActors :: (Int,Int) -> IO Int
 testActors (x,y) = do
     t <- spawn nil
     mapM_ (insert t) $ friendlyList x

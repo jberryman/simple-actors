@@ -177,18 +177,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 
 TODO
 -----
- 0.3.0:
-    - better method for waiting for threads to complete. should probably use
-       actor message passing
-    - structured declarative and unit tests
-        - get complete code coverage into simple test module
-    - some sort of exception handling technique via Actors
-        (look at enumerator package)
 
 0.4
     - allow destructuring using UndecidableInstances (see mockup) on spawn, allowing for new, awesome synchronization semantics!
     - make that also work with Behaviors of arbitrary input types using new GHC generics!
-
 
 
 Later:
@@ -208,6 +200,7 @@ Later:
         - take a look at threadscope for random tree test
         - look at "let floating" and INLINEABLE to get functions with "fully-applied (syntactically) LHS"
         - compare with previous version (cp to /tmp to use previous version)
+    - get complete code coverage into simple test module
     - interesting solution to exit detection: 
         http://en.wikipedia.org/wiki/Huang%27s_algorithm
     - dynamically-bounded chans, based on number of writers to control
@@ -227,6 +220,7 @@ Later:
         - a pre-declared Mailbox for IO?
 
  Eventually:
+    - some sort of exception handling technique (using actors?)
     - abilty to launch an actor that automatically "replicates" if its chan needs more
        consumers. This should probably be restricted to an `Action i ()` that we
        repeat.
