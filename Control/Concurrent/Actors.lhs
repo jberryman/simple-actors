@@ -1,12 +1,12 @@
-> {-# LANGUAGE CPP, GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
+> {-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
 
 This module exports a simple, idiomatic implementation of the Actor Model.
 
 > module Control.Concurrent.Actors (
 >
 >     {- | 
->     Here we demonstrate a binary tree of actors that supports insert and query
->     operations:
+>     Here we demonstrate a binary tree of actors that supports concurrent
+>     insert and query operations:
 >      
 >     > import Control.Concurrent.Actors
 >     > import Control.Applicative
@@ -68,38 +68,15 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     -}
 >
 >     -- * Actor Behaviors
->     {- | 
->     In the Actor Model, at each step an actor...
->     
->         - processes a single 'received' message
->         
->         - may 'spawn' new actors
->         
->         - may 'send' messages to other actors
->         
->         - 'return's the 'Behavior' for processing the /next/ message
->     
->     These actions take place within the @Action i@ monad, where @i@ is the type
->     of the input message the actor receives.
->     
->     /N.B.:/ the MonadIO instance here is an abstraction leak. An example of a
->     good use of 'liftIO' might be to give an @Action@ access to a source of
->     randomness.
->     -}
 >       Action()
->     {- | 
->     An actor is created by 'spawn'ing a @Behavior@. Behaviors consist of a
->     composed 'Action' that is executed when a message is 'received' and
->     returns the @Behavior@ for processing the next input.
->     -}
 >     , Behavior(..)
->     -- ** Composing Behaviors
+>     -- ** Composing and Transforming Behaviors
 >     , (<.|>)
 >
 >     -- * Available actions
 >     -- ** Message passing
 >     , Mailbox()
->     , send
+>     , send , send' , (<->)
 >     , received
 >     , guardReceived
 >     -- ** Spawning actors
@@ -153,6 +130,17 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , yield
 >     , receive
 >
+>     -- ** Composing and Transforming Mailboxes
+>     {- |
+>     We offer some operations to split and combine 'Mailbox'es of sum and
+>     product types. 
+>     -}
+>     , coproductMb
+>     , productMb
+>     , zipMb
+>     , faninMb
+>     , fanoutMb
+>
 >     -- * Utility functions
 >     {- | 
 >     These are useful for debugging 'Behavior's
@@ -174,6 +162,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Control.Monad.IO.Class
 > import Control.Concurrent(forkIO)
 > import Data.Monoid
+> import Control.Arrow((***),(&&&),(|||))
 >
 > -- from the contravariant package 
 > import Data.Functor.Contravariant
@@ -185,48 +174,42 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 
 
 
------- CPP MACROS ------
-
-These macros are only provided by cabal unfortunately.... makes it difficult to
-work with GHCi:
-
-#if !MIN_VERSION_base(4,3,0)
-> void :: (Monad m)=> m a -> m ()
-> void = (>> return ())
-#endif
-
-------------------------
 
 TODO
 -----
- 0.3.0:
-    - define natural transformation combinators (in IO unfortunately) a.la.
-      'categories' for Mailbox. So
-        - :: Mailbox (a,b) -> (Mailbox a, Mailbox b)  -- divide?
-        - :: Mailbox a -> Mailbox b -> Mailbox (Either a b) -- add?
-        - etc...
-      put these in a separate sub-module, optionally import, mention how an
-      extension to actor model or something
-    - allow supplying the first input message for an actor during spawn. This is
-      awkward otherwise. Include in same sub-module as above?
-    - performance testing:
-        - take a look at threadscope for random tree test
-        - get complete code coverage into simple test module
-    - interesting solution to exit detection: 
-        http://en.wikipedia.org/wiki/Huang%27s_algorithm
-    - better method for waiting for threads to complete. should probably use
-       actor message passing
-    - look into whether we should use Text lib instead of strings?
-      OverloadedStrings?
-        -import Data.String, make polymorphic over IsString
-        -test if this lets us use it in importing module w/ OverloadedStrings
-        extension
-    - structured declarative and unit tests
-    - some sort of exception handling technique via Actors
-        (look at enumerator package)
-    - strict send' function
+
+0.4
+    - allow destructuring using UndecidableInstances (see mockup) on spawn, allowing for new, awesome synchronization semantics!
+    - make that also work with Behaviors of arbitrary input types using new GHC generics!
+
 
 Later:
+    - performance tuning / benchmarking:
+        + look at interface file: ghc -ddump-hi Control/Concurrent/Actors.hs -O -c
+        + remove current PRAGMA
+        - close browser and everything, do a fake quick benchmark to get clock info
+        - be more controlled about the source lists (do once before defaultMain), use 'evaluate'
+        - run with +RTS -s and make sure everything is 0
+        - see if case-based nil is better
+        - get accurate baseline comparison between actors and set
+        - use INLINABLE
+        - test again with SPECIALIZE instead
+        - try adding INLINE to all with higher-order args (or higher-order newtype wrappers)
+           and make sure our LHS looks good for inlining
+        - specialize `Action i (Behavior i)` or allow lots of unfolding... ? Optimize those loops, somehow. Rewrite rules?
+        - take a look at threadscope for random tree test
+        - look at "let floating" and INLINEABLE to get functions with "fully-applied (syntactically) LHS"
+        - compare with previous version (cp to /tmp to use previous version)
+    - get complete code coverage into simple test module
+    - interesting solution to exit detection: 
+        http://en.wikipedia.org/wiki/Huang%27s_algorithm
+    - dynamically-bounded chans, based on number of writers to control
+      producer/consumer issues? Possibly add more goodies to chan-split
+          see: http://hackage.haskell.org/package/stm-chans
+    - look at what Functor/Contravariant for read/write ends, and corresponding
+      natural transformations those allow suggest about limits of Actor model
+      and investigate inverse of Actors (Reducers?)
+    - create an experimental Collectors sub-module
     - investigate ways of positively influencing thread scheduling based on
        actor work agenda?
     - export some more useful Actors and global thingies
@@ -236,7 +219,13 @@ Later:
         - an actor that sends a random stream?
         - a pre-declared Mailbox for IO?
 
- Eventualy:
+ Eventually:
+    - some sort of exception handling technique (using actors?)
+    - abilty to launch an actor that automatically "replicates" if its chan needs more
+       consumers. This should probably be restricted to an `Action i ()` that we
+       repeat.
+    - can we automatically throttle producers on an Actor system level,
+      optimizing message flow with some algorithm?
     - provide an "adapter" for amazon SQS, allowing truly distributed message
       passing
     - investigate erlang-style selective receive (using Alternative?)
@@ -256,32 +245,79 @@ Later:
         (maybe letting us use useful enumerators)
      ...also now pipes, conduits, etc. etc.
 
+     - study ambient/join/fusion calculi for clues as to where it's really at
+
 
 CHAN TYPES
 ==========
 
+By defining our Mailbox as the bare "send" operation we get a very convenient
+way of defining contravariant instance, without all the overhead we had before,
+while ALSO now supporting some great natural transformations on Mailboxes &
+Messages.
+
+We use this newtype to get 'Contravariant' for free, possibly revealing other
+insights:
+
+> type Sender a = Op (IO ()) a
+>
+> mailbox :: (a -> IO ()) -> Mailbox a
+> mailbox = Mailbox . Op
+>
+> runMailbox :: Mailbox a -> a -> IO ()
+> runMailbox = getOp . sender
+>
+> mkMailbox :: InChan a -> Mailbox a
+> mkMailbox = mailbox . writeChan
+>
+> mkMessages :: OutChan a -> Messages a
+> mkMessages = Messages . readChan
+>
 > -- | One can 'send' a messages to a @Mailbox@ where it will be processed
 > -- according to an actor\'s defined 'Behavior'
-> newtype Mailbox a = Mailbox { inChan :: InChan a }
+> newtype Mailbox a = Mailbox { sender :: Sender a }
 >       deriving (Contravariant)
->
 
 We don't need to expose this thanks to the miracle of MonadFix and recursive do,
 but this can be generated via the NewSplitChan class below if the user imports
 the library:
 
-> newtype Messages a = Messages { outChan :: OutChan a }
+> newtype Messages a = Messages { readMsg :: IO a }
 >       deriving (Functor) 
 >
 > -- Not sure how to derive this or if possible:
 > instance SplitChan Mailbox Messages where
->     readChan = readChan . outChan
->     writeChan = writeChan . inChan
->     writeList2Chan = writeList2Chan . inChan
+>     readChan = readMsg
+>     writeChan = runMailbox
 >
 > instance NewSplitChan Mailbox Messages where
->     newSplitChan = fmap (\(i,o)-> (Mailbox i, Messages o)) newSplitChan
+>     newSplitChan = (mkMailbox *** mkMessages) `fmap` newSplitChan
+
+
+For Mailboxes we can define all transformations associated with Cartesian and 
+CoCartesian (from 'categories') but where the category is Dual (->), i.e. the
+order of the transformation is flipped.
+
+I don't know if/how these precisely fit into an existing class, but for now here
+are a handful of useful combinators:
+
+> coproductMb :: Mailbox a -> Mailbox b -> Mailbox (Either a b) 
+> coproductMb m1 m2 = mailbox $ either (writeChan m1) (writeChan m2)
 >
+> zipMb :: Mailbox a -> Mailbox b -> Mailbox (a,b) 
+> zipMb m1 m2 = mailbox $ \(a,b) -> writeChan m1 a >> writeChan m2 b
+>
+> -- | > productMb = contramap Left &&& contramap Right
+> productMb :: Mailbox (Either a b) -> (Mailbox a, Mailbox b)
+> productMb = contramap Left &&& contramap Right
+>
+> -- | > faninMb f g = contramap (f ||| g)
+> faninMb :: (a -> c) -> (b -> c)-> Mailbox c -> Mailbox (Either a b) 
+> faninMb f g = contramap (f ||| g)
+>
+> -- | > fanoutMb f g = contramap (f &&& g)
+> fanoutMb :: (a -> b) -> (a -> c) -> Mailbox (b,c) -> Mailbox a
+> fanoutMb f g = contramap (f &&& g)
 
 
 
@@ -353,6 +389,23 @@ source of confusion (or the opposite)... I'm not sure.
 > send :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
 > send b = liftIO . writeChan b
 
+> -- | A strict 'send':
+> --
+> -- > send' b a = a `seq` send b a
+> send' :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
+> send' b a = a `seq` send b a
+
+> infixr 1 <->
+>
+> -- | Like 'send' but supports chaining sends by returning the Mailbox.
+> -- Convenient for initializing an Actor with its first input after spawning,
+> -- e.g.
+> --
+> -- >     do mb <- 0 <-> spawn foo
+> (<->) :: (MonadIO m, SplitChan c x)=> a -> m (c a) -> m (c a)
+> a <-> mmb = mmb >>= \mb-> send mb a >> return mb
+
+
 
 
 FORKING AND RUNNING ACTORS:
@@ -389,8 +442,11 @@ FORKING ACTORS
 --------------
 
 > -- | Fork an actor performing the specified 'Behavior'. /N.B./ an actor 
-> -- begins execution of its 'headBehavior' only after a mesage has been 
-> -- received. See also 'spawn_'.
+> -- begins execution of its 'headBehavior' only after a message has been 
+> -- received; for sending an initial message to an actor right after 'spawn'ing
+> -- it, ('<|>') can be convenient.
+> --
+> -- See also 'spawn_'.
 > spawn :: (MonadIO m)=> Behavior i -> m (Mailbox i)
 > spawn b = do
 >     (m,s) <- liftIO newSplitChan

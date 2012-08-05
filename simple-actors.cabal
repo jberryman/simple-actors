@@ -7,7 +7,7 @@ Name:                simple-actors
 -- The package version. See the Haskell package versioning policy
 -- (http://www.haskell.org/haskellwiki/Package_versioning_policy) for
 -- standards guiding when and how versions should be incremented.
-Version:             0.2.1
+Version:             0.3.0
 
 -- A short (one-line) description of the package.
 Synopsis:            A library for more structured concurrent programming, based
@@ -21,9 +21,16 @@ Description:         simple-actors is an EDSL-style library for writing
                      single input value, perform some 'Action's, and return the
                      Behavior to process the next input message it receives.
                      .
-                     /CHANGES/ 0.2.0 - 0.2.1:
+                     /CHANGES/ 0.2.1 - 0.3:
                      .
-                     - constrain version of chan-split
+                     - added (@\<-\>@) convenience operator, and strict @send'@
+                     .
+                     - add composition\/transformation functions for Mailboxes
+                     .
+                     - drop support for older base and transformers, no more CPP
+                     .
+                     - depend on chan-split 0.4
+
 
 -- The license under which the package is released.
 License:             BSD3
@@ -64,10 +71,10 @@ Library
   Exposed-modules:     Control.Concurrent.Actors
   
   -- Packages needed in order to build this package.
-  Build-depends:       base >= 4 && < 5    
-                     , chan-split <= 0.3.0
+  Build-depends:       base >= 4.3 && < 5    
+                     , chan-split >= 0.4.0
                      , mtl >= 2
-                     , transformers
+                     , transformers >= 0.3
                      , contravariant
                     
   
