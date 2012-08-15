@@ -81,12 +81,13 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , guardReceived
 >     -- ** Spawning actors
 >     {- | 
->     The 'spawn' function will be sufficient for forking actors in most cases,
->     but launching mutually-communicating actors presents a problem.
+>     Straightforward use of the 'spawn' function will be sufficient for
+>     forking actors in most cases, but launching mutually-communicating actors
+>     presents a problem.
 >      
 >     In cases where a 'Behavior' needs access to its own 'Mailbox' or that of 
 >     an actor that must be forked later, the 'MonadFix' instance should be
->     used. GHC\'s \"Recursive Do\" make this especially easy:
+>     used. GHC\'s \"Recursive Do\" notation make this especially easy:
 >      
 >     > {-# LANGUAGE DoRec #-}
 >     > beh = Receive $ do
@@ -180,10 +181,15 @@ TODO
 
 0.4
     - allow destructuring using UndecidableInstances (see mockup) on spawn, allowing for new, awesome synchronization semantics!
-    - make that also work with Behaviors of arbitrary input types using new GHC generics!
-
-
-Later:
+        - also handle sums with a new (:-:) constructor on LHS of (<-)?
+        - instance for N-tuples as well for LHS and RHS?
+        - how does it fit in with what our Reducer semantics will be?
+    - also subsume spawn_ into our new 'spawn' with a Running/Go tag on LHS of (<-)
+        - how would that work with: (Go, Mailbox a) <- spawn b -- where b :: ((), a)
+        - ad re-write rule for spawn :: Behavior () -> m Go, to be old 'spawn_'
+    - make that also work with Behaviors of arbitrary input types using new GHC generics?
+    - use :-: type in productMb, as well (instead of (,)), give it record names: unleft/coleft
+    - fix homepage
     - performance tuning / benchmarking:
         + look at interface file: ghc -ddump-hi Control/Concurrent/Actors.hs -O -c
         + remove current PRAGMA
@@ -191,6 +197,8 @@ Later:
         - be more controlled about the source lists (do once before defaultMain), use 'evaluate'
         - run with +RTS -s and make sure everything is 0
         - see if case-based nil is better
+        - try storing the same chan (observable sharing) in each node, and use for streaming 
+           send an MVar with messages for the query operation
         - get accurate baseline comparison between actors and set
         - use INLINABLE
         - test again with SPECIALIZE instead
@@ -200,6 +208,9 @@ Later:
         - take a look at threadscope for random tree test
         - look at "let floating" and INLINEABLE to get functions with "fully-applied (syntactically) LHS"
         - compare with previous version (cp to /tmp to use previous version)
+
+
+Later:
     - get complete code coverage into simple test module
     - interesting solution to exit detection: 
         http://en.wikipedia.org/wiki/Huang%27s_algorithm
@@ -454,10 +465,10 @@ FORKING ACTORS
 >     return m
 >
 > -- | Fork a looping computation which starts immediately. Equivalent to
-> -- launching a @Behavior ()@ and another 'Behavior' that sends an infinite stream of
-> -- ()s to the former\'s 'Mailbox'.
+> -- launching a @Behavior ()@, then a second 'Behavior' that sends an 
+> -- infinite stream of @()@s to the former\'s 'Mailbox'.
 > spawn_ :: (MonadIO m)=> Behavior () -> m ()
-> spawn_ = liftIO . void . forkIO . runBehavior_  
+> spawn_ = liftIO . void . forkIO . runBehavior_
 
 
 

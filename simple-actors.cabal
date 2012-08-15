@@ -7,7 +7,7 @@ Name:                simple-actors
 -- The package version. See the Haskell package versioning policy
 -- (http://www.haskell.org/haskellwiki/Package_versioning_policy) for
 -- standards guiding when and how versions should be incremented.
-Version:             0.3.0
+Version:             0.4.0
 
 -- A short (one-line) description of the package.
 Synopsis:            A library for more structured concurrent programming, based
@@ -21,15 +21,20 @@ Description:         simple-actors is an EDSL-style library for writing
                      single input value, perform some 'Action's, and return the
                      Behavior to process the next input message it receives.
                      .
-                     /CHANGES/ 0.2.1 - 0.3:
+                     We also extend the strict actor model in various elegant ways.
+                     See source for this type of discussion.
                      .
-                     - added (@\<-\>@) convenience operator, and strict @send'@
+                     /CHANGES/ 0.3.0 - 0.4:
                      .
-                     - add composition\/transformation functions for Mailboxes
+                     - extend 'Control.Concurrent.Actors.spawn' to transparently support "joined
+                       mailboxes", i.e. join-patterns, allowing synchronization between actors
                      .
-                     - drop support for older base and transformers, no more CPP
+                     - old @spawn_@ subsumed by polymorphic @spawn@, with @Go@
                      .
-                     - depend on chan-split 0.4
+                     - 'Control.Concurrent.Actors.productMb' now returns a @(:-:)@
+                     .
+                     - performance improvements and benchmarks
+                     .
 
 
 -- The license under which the package is released.
