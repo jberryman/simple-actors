@@ -160,6 +160,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     ) where
 >
 > import Control.Monad
+> import Control.Applicative
 > import Control.Monad.Reader(ask)
 > import qualified Data.Foldable as F
 > import Control.Monad.IO.Class
@@ -171,7 +172,6 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 > import Data.Functor.Contravariant
 > -- from the chan-split package
 > import Control.Concurrent.Chan.Split
->
 > -- internal:
 > import Control.Concurrent.Actors.Behavior
 
@@ -488,9 +488,10 @@ Spawn uses un-exported newJoinedChan where we used newSplitChan previously:
 > -- available to process; for sending an initial message to an actor right
 > -- after 'spawn'ing it, ('<|>') can be convenient.
 > spawn :: (MonadIO m, Sources s)=> Behavior (Joined s) -> m s
-> spawn b = do
->     (srcs, msgs) <- liftIO newJoinedChan
->     spawnReading msgs b
+> spawn b = liftIO $ do
+>     (srcs, msgs) <- newJoinedChan
+>     let runner b' = readChan msgs >>= runBehaviorStep b' >>= F.mapM_ runner
+>     void $ forkIO (runner b)
 >     return srcs
 
 ...and our instance for Mailbox completes previous simple spawn functionality:
@@ -509,7 +510,7 @@ By adding an instance for (,) synchronization and wonderful new things become po
 >         let m' = Messages $ liftM2 (,) (readMsg ma) (readMsg mb)
 >         return ((sa,sb), m')
 
-TODO: INSTANCES UP TO 7-TUPLES
+TODO: INSTANCES UP TO 7-TUPLES =======
 
 
 I give up for now on defining an instance for sums. This probably requires a
@@ -559,23 +560,21 @@ returning an infinite source of ()s:
 >     newJoinedChan = 
 >         return (Units, Messages $ return ())
 
+Replace polymorphic craziness with old spawn_ function, when we can:
+
+> {-# RULES "spawn_" spawn = spawn_  #-}
+> spawn_ :: (MonadIO m)=> Behavior () -> m Units
+> spawn_ = liftIO . (Units <$) . forkIO . runBehavior_
 
 
-This is un-exported in 0.4, since it was unused (by me), exposed confusing
-implementation details, supports e.g. launching an actor on a bounded channel
-which violates the Model, and doesn't provide an effective way to do much cool
-stuff like reading from a network socket.
+    NOTE: spawnReading removed in 0.4, since it was unused (by me), exposed
+    confusing implementation details, supports e.g. launching an actor on a
+    bounded channel which violates the Model, and doesn't provide an effective
+    way to do much cool stuff like reading from a network socket.
 
-Instead I guess we should expose enough internals in a separate module to support
-future cool stuff.
+    Instead I guess we should expose enough internals in a separate module to
+    support future cool stuff.
 
-> -- | Like 'spawn' but allows one to specify explicitly the channel from which
-> -- an actor should take its input. Useful for extending the library to work
-> -- over other channels.
-> spawnReading :: (MonadIO m, SplitChan x c)=> c i -> Behavior i -> m ()
-> spawnReading str = liftIO . void . forkIO . actorRunner 
->     where actorRunner b =
->               readChan str >>= runBehaviorStep b >>= F.mapM_ actorRunner
 
 
 RUNNING ACTORS
@@ -593,14 +592,6 @@ These work in IO, returning () when the actor finishes with done/mzero:
 > runBehavior b (a:as) = runBehaviorStep b a >>= F.mapM_ (`runBehavior` as)
 > runBehavior _ _      = return ()
 
-
-TODO: rewrite spawn :: Behavior () -> m Units to this:
-
-    > -- | Fork a looping computation which starts immediately. Equivalent to
-    > -- launching a @Behavior ()@, then a second 'Behavior' that sends an 
-    > -- infinite stream of @()@s to the former\'s 'Mailbox'.
-    > spawn_ :: (MonadIO m)=> Behavior () -> m ()
-    > spawn_ = liftIO . void . forkIO . runBehavior_
 
 
 
