@@ -1,4 +1,4 @@
-> {-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
+> {-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses, TypeFamilies, TypeOperators #-}
 
 This module exports a simple, idiomatic implementation of the Actor Model.
 
@@ -80,6 +80,11 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , received
 >     , guardReceived
 >     -- ** Spawning actors
+>     , Sources(), Joined
+>     , Units
+>   --, (:-:)(..)
+>     , spawn
+>     -- *** Mailboxes and scoping
 >     {- | 
 >     Straightforward use of the 'spawn' function will be sufficient for
 >     forking actors in most cases, but launching mutually-communicating actors
@@ -98,14 +103,11 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     >         b3 <- spawn (senderTo b3)
 >     >     -- send initial messages to actors spawned above:
 >     >     send b3 i
->     >     send "first" b2
+>     >     send b2 "first"
 >     >     yield
 >
 >     -}
 >
->     , spawn
->     , spawn_
->     , spawnReading
 >     -- ** Building an actor computation
 >     {- | 
 >     An actor computation can be halted immediately by calling 'yield',
@@ -286,6 +288,8 @@ insights:
 >
 > -- | One can 'send' a messages to a @Mailbox@ where it will be processed
 > -- according to an actor\'s defined 'Behavior'
+> --
+> -- > type Joined (Mailbox a) = a
 > newtype Mailbox a = Mailbox { sender :: Sender a }
 >       deriving (Contravariant)
 
@@ -318,16 +322,21 @@ are a handful of useful combinators:
 > zipMb :: Mailbox a -> Mailbox b -> Mailbox (a,b) 
 > zipMb m1 m2 = mailbox $ \(a,b) -> writeChan m1 a >> writeChan m2 b
 >
+
+The naming here doesn't make much sense now that these are general. Keep for 
+now and hope we can deprecate in favor of functionality in one of E.K.'s 
+libs?
+
 > -- | > productMb = contramap Left &&& contramap Right
-> productMb :: Mailbox (Either a b) -> (Mailbox a, Mailbox b)
+> productMb :: Contravariant f => f (Either a b) -> (f a, f b)
 > productMb = contramap Left &&& contramap Right
 >
 > -- | > faninMb f g = contramap (f ||| g)
-> faninMb :: (a -> c) -> (b -> c)-> Mailbox c -> Mailbox (Either a b) 
+> faninMb :: Contravariant f => (b -> a) -> (c -> a) -> f a -> f (Either b c)
 > faninMb f g = contramap (f ||| g)
 >
 > -- | > fanoutMb f g = contramap (f &&& g)
-> fanoutMb :: (a -> b) -> (a -> c) -> Mailbox (b,c) -> Mailbox a
+> fanoutMb :: Contravariant f=> (a -> b) -> (a -> c) -> f (b,c) -> f a
 > fanoutMb f g = contramap (f &&& g)
 
 
@@ -340,7 +349,7 @@ Functionality is based on our underlying type classes, but users shouldn't need
 to import a bunch of libraries to get basic Behavior building functionality.
 
 > infixl 3 <.|>
-
+>
 > -- | Sequence two @Behavior@s. After the first 'yield's the second takes over,
 > -- discarding the message the former was processing. See also the 'Monoid'
 > -- instance for @Behavior@.
@@ -394,7 +403,7 @@ source of confusion (or the opposite)... I'm not sure.
 
 > -- | Send a message asynchronously. This can be used to send messages to other
 > -- Actors via a 'Mailbox', or used as a means of output from the Actor system
-> -- to IO since the function is polymorphic.
+> -- to IO since the function is polymorphic in 'SplitChan'.
 > --  
 > -- > send b = liftIO . writeChan b
 > send :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
@@ -422,6 +431,143 @@ source of confusion (or the opposite)... I'm not sure.
 FORKING AND RUNNING ACTORS:
 ===========================
 
+The strict Actor Model is limited in expressiveness, in that it doesn't allow
+for a method of synchronization, e.g. we cannot have an actor that pairs up
+incoming messages from two different channels. I think this leads to nonsense
+like "selective receive" in Erlang (disclaimer: IANA erlang-xpert).
+
+I've realized that I can keep all the nice semantics of actors (i.e. this
+change doesn't affect Behaviors) , while supporting synchronization and
+simplifying the API all at the same time! This method is inspired by the "join
+calculus", and I'm sure this isn't a new idea.
+
+To support this elegantly in the API, we define a class with associated type,
+and make 'spawn' the method. This allows the pattern of joins to be determined
+polymorphically based on users' pattern match!
+
+    NOTE: My original goal was to use GHC.Generic to support arbitrary joins on
+    any Generic a=> Behavior a ...but it wasn't coming together. Let me know
+    if you can figure it out.
+
+> -- | We extend the actor model to support joining (or synchronizing) multiple
+> -- 'Mailbox'es to a single 'Behavior' input type, using a new class with an
+> -- associated type. Functionality is best explained by example:
+> --
+> -- Spawn an actor returning it's 'Mailbox', and send it its first message:
+> -- 
+> -- > sumTuple :: Behavior (Int, Int)
+> -- >
+> -- > do b <- spawn sumTuple
+> -- >    send b (4, 1) 
+> -- >    ...
+> --
+> -- But now we would like our @sumTuple@ actor to receive each number from a different 
+> -- concurrent actor:
+> --
+> -- > do (b1, b2) <- spawn sumTuple
+> -- >    b3 <- spawn (multipliesBy2AndSendsTo b1)
+> -- >    send b3 2
+> -- >    send b2 1
+> -- >    ...
+> --
+> -- Lastly spawn an actor that starts immediately on an infinite supply of 'Units',
+> -- and supplies an endless stream of @Int@s to @sumTuple@
+> --
+> -- > do (b1, b2) <- spawn sumTuple
+> -- >    Units <- spawn (sendsIntsTo b2)
+> -- >    send b1 4
+> -- >    ...
+> class Sources s where
+>     type Joined s :: *
+>     newJoinedChan :: IO (s, Messages (Joined s)) -- private
+
+Spawn uses un-exported newJoinedChan where we used newSplitChan previously:
+
+> -- | Fork an actor performing the specified 'Behavior'. /N.B./ an actor
+> -- begins execution of its 'headBehavior' only after a message becomes
+> -- available to process; for sending an initial message to an actor right
+> -- after 'spawn'ing it, ('<|>') can be convenient.
+> spawn :: (MonadIO m, Sources s)=> Behavior (Joined s) -> m s
+> spawn b = do
+>     (srcs, msgs) <- liftIO newJoinedChan
+>     spawnReading msgs b
+>     return srcs
+
+...and our instance for Mailbox completes previous simple spawn functionality:
+
+> instance Sources (Mailbox a) where
+>     type Joined (Mailbox a) = a
+>     newJoinedChan = newSplitChan
+
+By adding an instance for (,) synchronization and wonderful new things become possible!
+
+> instance (Sources a, Sources b)=> Sources (a,b) where
+>     type Joined (a,b) = (Joined a, Joined b)
+>     newJoinedChan = do
+>         (sa, ma) <- newJoinedChan
+>         (sb, mb) <- newJoinedChan
+>         let m' = Messages $ liftM2 (,) (readMsg ma) (readMsg mb)
+>         return ((sa,sb), m')
+
+TODO: INSTANCES UP TO 7-TUPLES
+
+
+I give up for now on defining an instance for sums. This probably requires a
+different formulation for class
+
+    ...and we also support Either as a source, since this is the only way to get a joined
+    product of sums; otherwise users could just use 'productMb', a pure operation.
+
+    > -- | > type Joined (a :-: b) = Either (Joined a) (Joined b)
+    > --
+    > -- A product of 'Sources' corresponding to a @Behavior (Either a b)@. Allows
+    > -- 'spawn'-ing a @Behavior@  which receives a sum of perhaps-'Joined' products.
+    > --
+    > -- See also: 'productMb'
+    > data a :-: b = (:-:) { sourceLeft :: a
+    >                      , sourceRight :: b }
+    >
+    > instance (Sources a, Sources b)=> Sources (a :-: b) where
+    >     type Joined (a :-: b) = Either (Joined a) (Joined b)
+    >     --newJoinedChan :: IO (a :-: b, Messages (Either (Joined a) (Joined b)))
+    >     newJoinedChan = do
+    >         (src, msgs) <- newSplitChan
+    >         let (s1, s2) = productMb src
+    >         return (decompose s1 :-: decompose s2, msgs)
+
+    class Sources s where
+        type Joined s :: *
+        newJoinedChan :: IO (s, Messages (Joined s))
+        decomp :: Mailbox (a,b) -> (Mailbox a, Mailbox b)
+        decomp :: Mailbox a -> Mailbox a
+        decomp :: Mailbox (Either a b) -> (Mailbox a :-: Mailbox b)
+
+
+We can subsume the old 'spawn_' functionality in our class as well, and imagine
+returning an infinite source of ()s:
+
+> -- | > type Joined Units = ()
+> --
+> -- Like a 'Mailbox' full of an endless supply of @()@s. Allows 'spawn'-ing
+> -- a @Behavior ()@ that starts immediately and loops until it 'yield'-s, e.g.
+> -- 
+> -- > do Units <- spawn startsImmediately -- :: Behavior ()
+> data Units = Units
+>
+> instance Sources Units where
+>     type Joined Units = ()
+>     newJoinedChan = 
+>         return (Units, Messages $ return ())
+
+
+
+This is un-exported in 0.4, since it was unused (by me), exposed confusing
+implementation details, supports e.g. launching an actor on a bounded channel
+which violates the Model, and doesn't provide an effective way to do much cool
+stuff like reading from a network socket.
+
+Instead I guess we should expose enough internals in a separate module to support
+future cool stuff.
 
 > -- | Like 'spawn' but allows one to specify explicitly the channel from which
 > -- an actor should take its input. Useful for extending the library to work
@@ -440,7 +586,7 @@ These work in IO, returning () when the actor finishes with done/mzero:
 > -- | Run a @Behavior ()@ in the main thread, returning when the computation
 > -- exits.
 > runBehavior_ :: Behavior () -> IO ()
-> runBehavior_ b = runBehavior b [(),()..]
+> runBehavior_ b = runBehavior b $ repeat ()
 >
 > -- | run a 'Behavior' in the IO monad, taking its \"messages\" from the list.
 > runBehavior :: Behavior a -> [a] -> IO ()
@@ -448,27 +594,13 @@ These work in IO, returning () when the actor finishes with done/mzero:
 > runBehavior _ _      = return ()
 
 
+TODO: rewrite spawn :: Behavior () -> m Units to this:
 
-FORKING ACTORS
---------------
-
-> -- | Fork an actor performing the specified 'Behavior'. /N.B./ an actor 
-> -- begins execution of its 'headBehavior' only after a message has been 
-> -- received; for sending an initial message to an actor right after 'spawn'ing
-> -- it, ('<|>') can be convenient.
-> --
-> -- See also 'spawn_'.
-> spawn :: (MonadIO m)=> Behavior i -> m (Mailbox i)
-> spawn b = do
->     (m,s) <- liftIO newSplitChan
->     spawnReading s b
->     return m
->
-> -- | Fork a looping computation which starts immediately. Equivalent to
-> -- launching a @Behavior ()@, then a second 'Behavior' that sends an 
-> -- infinite stream of @()@s to the former\'s 'Mailbox'.
-> spawn_ :: (MonadIO m)=> Behavior () -> m ()
-> spawn_ = liftIO . void . forkIO . runBehavior_
+    > -- | Fork a looping computation which starts immediately. Equivalent to
+    > -- launching a @Behavior ()@, then a second 'Behavior' that sends an 
+    > -- infinite stream of @()@s to the former\'s 'Mailbox'.
+    > spawn_ :: (MonadIO m)=> Behavior () -> m ()
+    > spawn_ = liftIO . void . forkIO . runBehavior_
 
 
 
