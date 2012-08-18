@@ -32,7 +32,7 @@ Description:         simple-actors is an EDSL-style library for writing
                      .
                      - old @spawn_@ subsumed by polymorphic @spawn@, with @()@
                      .
-                     - 'Control.Concurrent.Actors.productMb', 'Control.Concurrent.Actors.faninMb', and 'Control.Concurrent.Actors.fanoutMb' given more general types
+                     - productMb, faninMb, and fanoutMb renamed 'Control.Concurrent.Actors.contraProduct', 'Control.Concurrent.Actors.contraFanin', and 'Control.Concurrent.Actors.contraFanout', and given more general types
                      .
                      - old @spawnReading@ removed
                      .

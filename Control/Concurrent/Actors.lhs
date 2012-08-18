@@ -138,10 +138,10 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     product types. 
 >     -}
 >     , coproductMb
->     , productMb
+>     , contraProduct
 >     , zipMb
->     , faninMb
->     , fanoutMb
+>     , contraFanin
+>     , contraFanout
 >
 >     -- * Utility functions
 >     {- | 
@@ -319,17 +319,17 @@ The naming here doesn't make much sense now that these are general. Keep for
 now and hope we can deprecate in favor of functionality in one of E.K.'s 
 libs?
 
-> -- | > productMb = contramap Left &&& contramap Right
-> productMb :: Contravariant f => f (Either a b) -> (f a, f b)
-> productMb = contramap Left &&& contramap Right
+> -- | > contraProduct = contramap Left &&& contramap Right
+> contraProduct :: Contravariant f => f (Either a b) -> (f a, f b)
+> contraProduct = contramap Left &&& contramap Right
 >
-> -- | > faninMb f g = contramap (f ||| g)
-> faninMb :: Contravariant f => (b -> a) -> (c -> a) -> f a -> f (Either b c)
-> faninMb f g = contramap (f ||| g)
+> -- | > contraFanin f g = contramap (f ||| g)
+> contraFanin :: Contravariant f => (b -> a) -> (c -> a) -> f a -> f (Either b c)
+> contraFanin f g = contramap (f ||| g)
 >
-> -- | > fanoutMb f g = contramap (f &&& g)
-> fanoutMb :: Contravariant f=> (a -> b) -> (a -> c) -> f (b,c) -> f a
-> fanoutMb f g = contramap (f &&& g)
+> -- | > contraFanout f g = contramap (f &&& g)
+> contraFanout :: Contravariant f=> (a -> b) -> (a -> c) -> f (b,c) -> f a
+> contraFanout f g = contramap (f &&& g)
 
 
 
@@ -566,14 +566,14 @@ I give up for now on defining an instance for sums. This probably requires a
 different formulation for class
 
     ...and we also support Either as a source, since this is the only way to get a joined
-    product of sums; otherwise users could just use 'productMb', a pure operation.
+    product of sums; otherwise users could just use 'contraProduct', a pure operation.
 
     > -- | > type Joined (a :-: b) = Either (Joined a) (Joined b)
     > --
     > -- A product of 'Sources' corresponding to a @Behavior (Either a b)@. Allows
     > -- 'spawn'-ing a @Behavior@  which receives a sum of perhaps-'Joined' products.
     > --
-    > -- See also: 'productMb'
+    > -- See also: 'contraProduct'
     > data a :-: b = (:-:) { sourceLeft :: a
     >                      , sourceRight :: b }
     >
@@ -582,7 +582,7 @@ different formulation for class
     >     --newJoinedChan :: IO (a :-: b, Messages (Either (Joined a) (Joined b)))
     >     newJoinedChan = do
     >         (src, msgs) <- newSplitChan
-    >         let (s1, s2) = productMb src
+    >         let (s1, s2) = contraProduct src
     >         return (decompose s1 :-: decompose s2, msgs)
 
     class Sources s where
