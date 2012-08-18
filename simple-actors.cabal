@@ -24,13 +24,15 @@ Description:         simple-actors is an EDSL-style library for writing
                      We also extend the strict actor model in various elegant ways.
                      See source for this type of discussion.
                      .
-                     /CHANGES/ 0.3.0 - 0.4:
+                     /CHANGES/: 0.3.0 - 0.4
                      .
                      - extend 'Control.Concurrent.Actors.spawn' to transparently support "joined
                        mailboxes", i.e. join-patterns, supporting synchronization between actors.
                        'Control.Concurrent.Actors.spawn' becomes polymorphic in new 'Control.Concurrent.Actors.Sources' class
                      .
                      - old @spawn_@ subsumed by polymorphic @spawn@, with @()@
+                     .
+                     - @send@ and other send-like functions restricted to Mailboxes, use 'out' to convert arbitrary chans to Mailboxes
                      .
                      - productMb, faninMb, and fanoutMb renamed 'Control.Concurrent.Actors.contraProduct', 'Control.Concurrent.Actors.contraFanin', and 'Control.Concurrent.Actors.contraFanout', and given more general types
                      .

@@ -25,12 +25,12 @@ import Control.Concurrent(forkIO)
 nil :: Behavior Operation
 nil = Receive $ do
     (Query _ var) <- received 
-    send var False -- signal Int is not present in tree
+    send (out var) False -- signal Int is not present in tree
     return nil     -- await next message
    
    <|> do          -- else, StreamQuery received
     (StreamQuery v var) <- received 
-    send var (v,False) 
+    send (out var) (v,False) 
     return nil     
 
    <|> do          -- else, Insert received
@@ -49,8 +49,8 @@ branch v l r = loop where
              LT -> send l m
              GT -> send r m
              EQ -> case m of -- signal Int present in tree:
-                        (Query _ var) -> send var True
-                        (StreamQuery _ var) -> send var (v, True)
+                        (Query _ var) -> send (out var) True
+                        (StreamQuery _ var) -> send (out var) (v, True)
                         _ -> return ()
         return loop
 

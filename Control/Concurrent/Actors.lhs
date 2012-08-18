@@ -42,16 +42,16 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     > -- operations supported by the network:
 >     > data Operation = Insert { val :: Int }
 >     >                | Query { val :: Int
->     >                        , sigVar :: MVar Bool }
+>     >                        , sigVar :: Mailbox Bool }
 >     > 
 >     > insert :: Node -> Int -> IO ()
 >     > insert t = send t . Insert
 >     > 
->     > -- MVar is in the 'SplitChan' class so actors can 'send' to it:
 >     > query :: Node -> Int -> IO Bool
 >     > query t a = do
+>     >     -- turn an MVar into a Mailbox actors can send to with 'out'
 >     >     v <- newEmptyMVar
->     >     send t (Query a v)
+>     >     send t (Query a $ out v)
 >     >     takeMVar v
 >     
 >     You can use the tree defined above in GHCi:
@@ -76,6 +76,7 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     -- * Available actions
 >     -- ** Message passing
 >     , Mailbox()
+>     , out
 >     , send , send' , (<->)
 >     , received
 >     , guardReceived
@@ -272,9 +273,6 @@ insights:
 > runMailbox :: Mailbox a -> a -> IO ()
 > runMailbox = getOp . sender
 >
-> mkMailbox :: InChan a -> Mailbox a
-> mkMailbox = mailbox . writeChan
->
 > mkMessages :: OutChan a -> Messages a
 > mkMessages = Messages . readChan
 >
@@ -284,6 +282,20 @@ insights:
 > -- > type Joined (Mailbox a) = a
 > newtype Mailbox a = Mailbox { sender :: Sender a }
 >       deriving (Contravariant)
+
+
+Previously we were polymorphic in SplitChan in many places. Now that spawn
+has polymorphic result type we simply export a function to convert from
+any SplitChan type. Otherwise we'd have to provide type annotations everywhere.
+
+I liked the previous version, since a send within an actor is semantically-
+identical regardless of the channel type.
+
+> -- | Convert the input side of a @SplitChan@ to a @Mailbox@. Useful for 
+> -- sending data out from an actor system via a channel created in IO.
+> out :: (SplitChan i x)=> i a -> Mailbox a
+> out = mailbox . writeChan
+
 
 We don't need to expose this thanks to the miracle of MonadFix and recursive do,
 but this can be generated via the NewSplitChan class below if the user imports
@@ -298,7 +310,7 @@ the library:
 >     writeChan = runMailbox
 >
 > instance NewSplitChan Mailbox Messages where
->     newSplitChan = (mkMailbox *** mkMessages) `fmap` newSplitChan
+>     newSplitChan = (out *** mkMessages) `fmap` newSplitChan
 
 
 For Mailboxes we can define all transformations associated with Cartesian and 
@@ -367,12 +379,12 @@ source of confusion (or the opposite)... I'm not sure.
 > -- | Useful to make defining a continuing Behavior more readable as a
 > -- \"receive block\", e.g.
 > --
-> -- > pairUp out = Receive $ do
+> -- > pairUpAndSendTo mb = Receive $ do
 > -- >     a <- received
 > -- >     receive $ do
 > -- >         b <- received
-> -- >         send out (b,a)
-> -- >         return (pairUp out)
+> -- >         send mb (b,a)
+> -- >         return (pairUpAndSendTo mb)
 > --
 > -- Defined as: 
 > --
@@ -393,18 +405,17 @@ source of confusion (or the opposite)... I'm not sure.
 > guardReceived :: (i -> Bool) -> Action i i
 > guardReceived p = ask >>= \i-> guard (p i) >> return i
 
-> -- | Send a message asynchronously. This can be used to send messages to other
-> -- Actors via a 'Mailbox', or used as a means of output from the Actor system
-> -- to IO since the function is polymorphic in 'SplitChan'.
+> -- | Send a message asynchronously to an actor receiving from Mailbox. See
+> -- also 'out' for converting other types of chans to 'Mailbox'.
 > --  
 > -- > send b = liftIO . writeChan b
-> send :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
+> send :: (MonadIO m)=> Mailbox a -> a -> m ()
 > send b = liftIO . writeChan b
 
 > -- | A strict 'send':
 > --
 > -- > send' b a = a `seq` send b a
-> send' :: (MonadIO m, SplitChan c x)=> c a -> a -> m ()
+> send' :: (MonadIO m)=> Mailbox a -> a -> m ()
 > send' b a = a `seq` send b a
 
 > infixr 1 <->
@@ -414,7 +425,7 @@ source of confusion (or the opposite)... I'm not sure.
 > -- e.g.
 > --
 > -- >     do mb <- 0 <-> spawn foo
-> (<->) :: (MonadIO m, SplitChan c x)=> a -> m (c a) -> m (c a)
+> (<->) :: (MonadIO m)=> a -> m (Mailbox a) -> m (Mailbox a)
 > a <-> mmb = mmb >>= \mb-> send mb a >> return mb
 
 
@@ -437,9 +448,11 @@ To support this elegantly in the API, we define a class with associated type,
 and make 'spawn' the method. This allows the pattern of joins to be determined
 polymorphically based on users' pattern match!
 
+
     NOTE: My original goal was to use GHC.Generic to support arbitrary joins on
     any Generic a=> Behavior a ...but it wasn't coming together. Let me know
     if you can figure it out.
+
 
 > -- | We extend the actor model to support joining (or synchronizing) multiple
 > -- 'Mailbox'es to a single 'Behavior' input type, using a new class with an
@@ -470,8 +483,9 @@ polymorphically based on users' pattern match!
 > -- >    send b1 4
 > -- >    ...
 > class Sources s where
->     type Joined s :: *
+>     type Joined s
 >     newJoinedChan :: IO (s, Messages (Joined s)) -- private
+
 
 Spawn uses un-exported newJoinedChan where we used newSplitChan previously:
 
@@ -486,11 +500,13 @@ Spawn uses un-exported newJoinedChan where we used newSplitChan previously:
 >     void $ forkIO (runner b)
 >     return srcs
 
+
 ...and our instance for Mailbox completes previous simple spawn functionality:
 
 > instance Sources (Mailbox a) where
 >     type Joined (Mailbox a) = a
 >     newJoinedChan = newSplitChan
+
 
 By adding an instance for (,) synchronization and wonderful new things become
 possible!
@@ -502,6 +518,7 @@ possible!
 >         (sb, mb) <- newJoinedChan
 >         let m' = Messages $ liftM2 (,) (readMsg ma) (readMsg mb)
 >         return ((sa,sb), m')
+
 
 We'll add instances up to 7-tuples, since that seems to be standard, but people
 can use nested tuples:
@@ -674,7 +691,7 @@ For now we allow negative
 > -- signalling the end of some other 'Behavior'.
 > --
 > -- > signalB c = Receive (send c () >> yield)
-> signalB :: (SplitChan c x)=> c () -> Behavior i
+> signalB :: Mailbox () -> Behavior i
 > signalB c = Receive (send c () >> yield)
 
 > -- | A @Behavior@ that discard its first input, returning the passed Behavior
