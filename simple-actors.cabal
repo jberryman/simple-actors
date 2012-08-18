@@ -12,7 +12,7 @@ Version:             0.4.0
 -- A short (one-line) description of the package.
 Synopsis:            A library for more structured concurrent programming, based
                      on the Actor Model
-Homepage:            http://coder.bsimmons.name/blog/2011/05/simple-actors-a-simple-actor-model-concurrency-library/
+Homepage:            http://brandon.si/code/simple-actors-0-1-0-released/
 
 -- A longer description of the package
 Description:         simple-actors is an EDSL-style library for writing

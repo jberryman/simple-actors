@@ -182,16 +182,6 @@ TODO
 -----
 
 0.4
-    - allow destructuring using UndecidableInstances (see mockup) on spawn, allowing for new, awesome synchronization semantics!
-        - also handle sums with a new (:-:) constructor on LHS of (<-)?
-        - instance for N-tuples as well for LHS and RHS?
-        - how does it fit in with what our Reducer semantics will be?
-    - also subsume spawn_ into our new 'spawn' with a Running/Go tag on LHS of (<-)
-        - how would that work with: (Go, Mailbox a) <- spawn b -- where b :: ((), a)
-        - ad re-write rule for spawn :: Behavior () -> m Go, to be old 'spawn_'
-    - make that also work with Behaviors of arbitrary input types using new GHC generics?
-    - use :-: type in productMb, as well (instead of (,)), give it record names: unleft/coleft
-    - fix homepage
     - performance tuning / benchmarking:
         + look at interface file: ghc -ddump-hi Control/Concurrent/Actors.hs -O -c
         + remove current PRAGMA
@@ -213,6 +203,9 @@ TODO
 
 
 Later:
+    - make that also work with Behaviors of arbitrary input types using new GHC generics?
+    - can we make joins work with arbitrary types using Generics?
+    - can we support Either in Sources?
     - get complete code coverage into simple test module
     - interesting solution to exit detection: 
         http://en.wikipedia.org/wiki/Huang%27s_algorithm

@@ -29,6 +29,7 @@ main0 = defaultMain [
   --       ]
     ]
 
+-- 484:
 main = testActors (2^10 - 1, 1000) >>= print
 
 -- DEBUGGING:
