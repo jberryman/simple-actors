@@ -81,7 +81,6 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 >     , guardReceived
 >     -- ** Spawning actors
 >     , Sources(), Joined
->     , Units
 >   --, (:-:)(..)
 >     , spawn
 >     -- *** Mailboxes and scoping
@@ -226,7 +225,7 @@ Later:
         - a pre-declared Mailbox for IO?
 
  Eventually:
-    - some sort of exception handling technique (using actors?)
+    - some sort of exception handling technique a.la erlang
     - abilty to launch an actor that automatically "replicates" if its chan needs more
        consumers. This should probably be restricted to an `Action i ()` that we
        repeat.
@@ -234,7 +233,7 @@ Later:
       optimizing message flow with some algorithm?
     - provide an "adapter" for amazon SQS, allowing truly distributed message
       passing
-    - investigate erlang-style selective receive (using Alternative?)
+    - play w/ distributed-process (cloud haskell)
     - consider: combining TChans, where values are popped off when available,
       for chan-split?
     - look at ways we can represent network IO as channels to interface with
@@ -251,7 +250,7 @@ Later:
         (maybe letting us use useful enumerators)
      ...also now pipes, conduits, etc. etc.
 
-     - study ambient/join/fusion calculi for clues as to where it's really at
+     - study ambient/join/fusion calculi for clues to where it's really at
 
 
 CHAN TYPES
@@ -463,11 +462,11 @@ polymorphically based on users' pattern match!
 > -- >    send b2 1
 > -- >    ...
 > --
-> -- Lastly spawn an actor that starts immediately on an infinite supply of 'Units',
+> -- Lastly spawn an actor that starts immediately on an infinite supply of @()@s,
 > -- and supplies an endless stream of @Int@s to @sumTuple@
 > --
 > -- > do (b1, b2) <- spawn sumTuple
-> -- >    Units <- spawn (sendsIntsTo b2)
+> -- >    () <- spawn (sendsIntsTo b2)
 > -- >    send b1 4
 > -- >    ...
 > class Sources s where
@@ -597,24 +596,22 @@ different formulation for class
 We can subsume the old 'spawn_' functionality in our class as well, and imagine
 returning an infinite source of ()s:
 
-> -- | > type Joined Units = ()
+> -- | > type Joined () = ()
 > --
-> -- Like a 'Mailbox' full of an endless supply of @()@s. Allows 'spawn'-ing
+> -- Represents an endless supply of @()@s. Allows 'spawn'-ing
 > -- a @Behavior ()@ that starts immediately and loops until it 'yield'-s, e.g.
 > -- 
-> -- > do Units <- spawn startsImmediately -- :: Behavior ()
-> data Units = Units
->
-> instance Sources Units where
->     type Joined Units = ()
+> -- > do () <- spawn startsImmediately -- :: Behavior ()
+> instance Sources () where
+>     type Joined () = ()
 >     newJoinedChan = 
->         return (Units, Messages $ return ())
+>         return ((), Messages $ return ())
 
 Replace polymorphic craziness with old spawn_ function, when we can:
 
 > {-# RULES "spawn_" spawn = spawn_  #-}
-> spawn_ :: (MonadIO m)=> Behavior () -> m Units
-> spawn_ = liftIO . (Units <$) . forkIO . runBehavior_
+> spawn_ :: (MonadIO m)=> Behavior () -> m ()
+> spawn_ = liftIO . void . forkIO . runBehavior_
 
 
     NOTE: spawnReading removed in 0.4, since it was unused (by me), exposed
