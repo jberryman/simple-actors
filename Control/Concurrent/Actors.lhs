@@ -500,7 +500,8 @@ Spawn uses un-exported newJoinedChan where we used newSplitChan previously:
 >     type Joined (Mailbox a) = a
 >     newJoinedChan = newSplitChan
 
-By adding an instance for (,) synchronization and wonderful new things become possible!
+By adding an instance for (,) synchronization and wonderful new things become
+possible!
 
 > instance (Sources a, Sources b)=> Sources (a,b) where
 >     type Joined (a,b) = (Joined a, Joined b)
@@ -510,7 +511,63 @@ By adding an instance for (,) synchronization and wonderful new things become po
 >         let m' = Messages $ liftM2 (,) (readMsg ma) (readMsg mb)
 >         return ((sa,sb), m')
 
-TODO: INSTANCES UP TO 7-TUPLES =======
+We'll add instances up to 7-tuples, since that seems to be standard, but people
+can use nested tuples:
+
+> instance (Sources a, Sources b, Sources c, Sources d, Sources e, Sources f, Sources g)=> Sources (a,b,c,d,e,f,g) where
+>     type Joined (a,b,c,d,e,f,g) = (Joined a, Joined b,Joined c,Joined d,Joined e,Joined f,Joined g)
+>     newJoinedChan = do
+>         (sa, ma) <- newJoinedChan
+>         (sb, mb) <- newJoinedChan
+>         (sc, mc) <- newJoinedChan
+>         (sd, md) <- newJoinedChan
+>         (se, me) <- newJoinedChan
+>         (sf, mf) <- newJoinedChan
+>         (sg, mg) <- newJoinedChan
+>         let m' = Messages $ (,,,,,,) <$> readMsg ma <*> readMsg mb <*> readMsg mc <*> readMsg md <*> readMsg me <*> readMsg mf <*> readMsg mg 
+>         return ((sa,sb,sc,sd,se,sf,sg), m')
+>
+> instance (Sources a, Sources b, Sources c, Sources d, Sources e, Sources f)=> Sources (a,b,c,d,e,f) where
+>     type Joined (a,b,c,d,e,f) = (Joined a, Joined b,Joined c,Joined d,Joined e,Joined f)
+>     newJoinedChan = do
+>         (sa, ma) <- newJoinedChan
+>         (sb, mb) <- newJoinedChan
+>         (sc, mc) <- newJoinedChan
+>         (sd, md) <- newJoinedChan
+>         (se, me) <- newJoinedChan
+>         (sf, mf) <- newJoinedChan
+>         let m' = Messages $ (,,,,,) <$> readMsg ma <*> readMsg mb <*> readMsg mc <*> readMsg md <*> readMsg me <*> readMsg mf
+>         return ((sa,sb,sc,sd,se,sf), m')
+>
+> instance (Sources a, Sources b, Sources c, Sources d, Sources e)=> Sources (a,b,c,d,e) where
+>     type Joined (a,b,c,d,e) = (Joined a, Joined b,Joined c,Joined d,Joined e)
+>     newJoinedChan = do
+>         (sa, ma) <- newJoinedChan
+>         (sb, mb) <- newJoinedChan
+>         (sc, mc) <- newJoinedChan
+>         (sd, md) <- newJoinedChan
+>         (se, me) <- newJoinedChan
+>         let m' = Messages $ (,,,,) <$> readMsg ma <*> readMsg mb <*> readMsg mc <*> readMsg md <*> readMsg me
+>         return ((sa,sb,sc,sd,se), m')
+>
+> instance (Sources a, Sources b, Sources c, Sources d)=> Sources (a,b,c,d) where
+>     type Joined (a,b,c,d) = (Joined a, Joined b,Joined c,Joined d)
+>     newJoinedChan = do
+>         (sa, ma) <- newJoinedChan
+>         (sb, mb) <- newJoinedChan
+>         (sc, mc) <- newJoinedChan
+>         (sd, md) <- newJoinedChan
+>         let m' = Messages $ (,,,) <$> readMsg ma <*> readMsg mb <*> readMsg mc <*> readMsg md 
+>         return ((sa,sb,sc,sd), m')
+>
+> instance (Sources a, Sources b, Sources c)=> Sources (a,b,c) where
+>     type Joined (a,b,c) = (Joined a, Joined b,Joined c)
+>     newJoinedChan = do
+>         (sa, ma) <- newJoinedChan
+>         (sb, mb) <- newJoinedChan
+>         (sc, mc) <- newJoinedChan
+>         let m' = Messages $ (,,) <$> readMsg ma <*> readMsg mb <*> readMsg mc 
+>         return ((sa,sb,sc), m')
 
 
 I give up for now on defining an instance for sums. This probably requires a
