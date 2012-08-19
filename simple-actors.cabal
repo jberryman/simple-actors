@@ -83,9 +83,9 @@ Library
   -- Packages needed in order to build this package.
   Build-depends:       base >= 4.3 && < 5    
                      , chan-split >= 0.4.0
-                     , mtl >= 2
+                     , mtl >= 2.1.1
                      , transformers >= 0.3
-                     , contravariant
+                     , contravariant >= 0.2.0.1
                     
   
   ghc-options:        -Wall

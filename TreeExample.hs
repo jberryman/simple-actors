@@ -6,7 +6,6 @@ import Control.Applicative
 import Control.Concurrent.MVar
 
 import Control.Concurrent.Chan.Split
-import Control.Concurrent.Chan.Class
 import Control.Concurrent(forkIO)
 
 
@@ -85,11 +84,13 @@ streamQueries t as = do
 
 ---- TEST CODE: ----
 
+mainQuery :: IO ()
 mainQuery = do
     t <- spawn nil
     mapM_ (insert t) [5,3,7,2,4,6,8]
     mapM (query t) [1,5,0,7] >>= print
 
+mainStream :: IO ()
 mainStream = do
     t <- spawn nil
     mapM_ (insert t) [5,3,7,2,4,6,8]

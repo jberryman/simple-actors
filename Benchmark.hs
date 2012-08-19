@@ -1,9 +1,9 @@
 module Main
     where
 
-import Criterion.Config
 import Criterion.Main
-import Criterion.Types
+--import Criterion.Types
+--import Criterion.Config
 import System.Random
 
 import qualified Data.Set as S
@@ -15,7 +15,7 @@ import TreeExample
 -- consistent results....
 
 main0 = defaultMain [
-    bench "calibrate" $ whnf sqrt 999999999
+    bench "calibrate" $ whnf sqrt (999999999 :: Double)
     -- bgroup "actors" [
     --         bench "insert 1000, query 1000" $ whnfIO $ testActors (2^10 - 1, 1000)
     --       , bench "insert 1000, query 100000" $ whnfIO $ testActors (2^10 - 1, 100000)
@@ -30,10 +30,12 @@ main0 = defaultMain [
     ]
 
 -- 484:
+main :: IO ()
 main = testActors (2^10 - 1, 1000) >>= print
 
 -- DEBUGGING:
-seed = 2876549687276 :: Int
+seed :: Int
+seed = 2876549687276
 
 -- SET
 testSet :: (Int,Int)  -- (size of tree, number of queries)
@@ -73,5 +75,6 @@ friendlyList n = fromSorted [1..n]
 fromSorted :: [a] -> [a]
 fromSorted = foldl mkList [] . divide 1
     where mkList l (n:ns) = n : l ++ fromSorted ns
+          mkList _ [] = error "how can that be?!"
           divide _ [] = []
           divide c xs = take c xs : divide (c*2) (drop c xs)
