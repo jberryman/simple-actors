@@ -2,6 +2,8 @@ module Main
     where
 
 import Criterion.Main
+import Debug.Trace
+import Control.DeepSeq
 --import Criterion.Types
 --import Criterion.Config
 import System.Random
@@ -53,16 +55,28 @@ testSet (x,y) = do
         payload = length $ filter snd results
     return payload
 
+-- silly, so we can get a better picture of what our simple-actors code is doing:
+deepEvaluate :: (NFData a, Monad m)=> a -> m a
+deepEvaluate a = a `deepseq` return a
+
 -- ACTORS
 testActors :: (Int,Int) -> IO Int
 testActors (x,y) = do
+    traceEventIO "creating friendlyList"
+    fl <- deepEvaluate $ friendlyList x
+
+    traceEventIO "inserting numbers into tree"
     t <- spawn nil
-    mapM_ (insert t) $ friendlyList x
+    mapM_ (insert t) fl
+
+    traceEventIO "generate random values"
     --g <- getStdGen  
     let g = mkStdGen seed
+    is <- deepEvaluate (take y $ randomRs (1, x*2) g :: [Int])
 
-    let is = take y $ randomRs (1, x*2) g :: [Int]
+    traceEventIO "query random values and calculate payload"
     results <- getChanContents =<< streamQueries t is
+    
     let payload = length $ filter snd $ take y results
     return payload
 
