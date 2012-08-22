@@ -181,24 +181,26 @@ This module exports a simple, idiomatic implementation of the Actor Model.
 TODO
 -----
 
-0.4
+0.4.1
     - performance tuning / benchmarking:
-        + look at interface file: ghc -ddump-hi Control/Concurrent/Actors.hs -O -c
-        + remove current PRAGMA
-        - close browser and everything, do a fake quick benchmark to get clock info
-        - be more controlled about the source lists (do once before defaultMain), use 'evaluate'
-        - run with +RTS -s and make sure everything is 0
-        - see if case-based nil is better
-        - try storing the same chan (observable sharing) in each node, and use for streaming 
-           send an MVar with messages for the query operation
-        - get accurate baseline comparison between actors and set
-        - use INLINABLE
-        - test again with SPECIALIZE instead
-        - try adding INLINE to all with higher-order args (or higher-order newtype wrappers)
-           and make sure our LHS looks good for inlining
-        - specialize `Action i (Behavior i)` or allow lots of unfolding... ? Optimize those loops, somehow. Rewrite rules?
+        - first optimize TreeExample, by way of Benchmark.hs
+        - criterion and profiling w/r/t lib.:
+            - play with underlying Behavior Monad stack?
+            - be more controlled about the source lists (do once before defaultMain), use 'evaluate'
+            - run with +RTS -s and make sure everything is 0
+            - see if case-based nil is better
+            - try storing the same chan (observable sharing) in each node, and use for streaming 
+               send an MVar with messages for the query operation
+            - get accurate baseline comparison between actors and set
+            - use INLINABLE
+            - test again with SPECIALIZE instead
+            - try adding INLINE to all with higher-order args (or higher-order newtype wrappers)
+               and make sure our LHS looks good for inlining
+            - specialize `Action i (Behavior i)` or allow lots of unfolding... ? Optimize those loops, somehow. Rewrite rules?
+            - look at "let floating" and INLINEABLE to get functions with "fully-applied (syntactically) LHS"
+        - split-chan ChItem in heap profile -hy
         - take a look at threadscope for random tree test
-        - look at "let floating" and INLINEABLE to get functions with "fully-applied (syntactically) LHS"
+        - forkOnIO to keep communicating actors on same HEC?
         - compare with previous version (cp to /tmp to use previous version)
 
 

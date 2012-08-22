@@ -38,8 +38,6 @@ Description:         simple-actors is an EDSL-style library for writing
                      .
                      - old @spawnReading@ removed
                      .
-                     - performance improvements and benchmarks
-                     .
 
 
 -- The license under which the package is released.

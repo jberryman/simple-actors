@@ -13,6 +13,21 @@ import Control.Concurrent.Actors
 import Control.Concurrent.Chan.Split
 import TreeExample
 
+
+-- THIS IS A WORK-IN-PROGRESS. PLEASE IGNORE. --
+
+
+{- NOTES & IDEAS
+
+look again at simple case expr for nil
+look at eventlog with equal number inserts and queries (are queries very slow?)
+look at bottom of heap profile, halfway through. Get that flat.
+what about using forkOnIO to keep child actors on the same OS thread?
+better way to handle recursion in Behavior?
+unpacking MVars?
+
+
+ -}
 -- put benchmarking & optimizing on hold until we can figure out how to get
 -- consistent results....
 
@@ -31,7 +46,6 @@ main0 = defaultMain [
   --       ]
     ]
 
--- 484:
 main :: IO ()
 main = testActors (2^10 - 1, 1000) >>= print
 
